@@ -59,6 +59,18 @@ int get_writer(char *data, size_t size, size_t nmemb, char *buffer)
     return result;
 }
 
+/*bool isDir(char * path){
+    char* resp;
+    int s =0;
+    s=get(path,resp);
+    if(resp !=null){
+
+        //convert resp to json object, return true if "type=DEFAULT" is set in the response
+
+        free(resp);
+    }
+}*/
+
 /*int main(int argc, char*argv[]){
 	char* data;
 	if(get("/", &data)>0)

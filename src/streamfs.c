@@ -53,6 +53,7 @@ static int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	filler(buf, ".", NULL, 0);
 	filler(buf, "..", NULL, 0);
 	filler(buf, sfs_path + 1, NULL, 0);
+    filler(buf, "admin", NULL, 0);
 
     //read the streamfs path
     gsize = get(path, &getstat);

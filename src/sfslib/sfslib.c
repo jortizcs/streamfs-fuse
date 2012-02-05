@@ -3,6 +3,8 @@
 #include <curl/curl.h>
 #include <pthread.h>
 
+#include "../cJSON/cJSON.h"
+
 int get(char *, char**);
 //int main(int, char*[]);
 int get_writer(char *, size_t, size_t, char *);
@@ -59,20 +61,30 @@ int get_writer(char *data, size_t size, size_t nmemb, char *buffer)
     return result;
 }
 
-/*bool isDir(char * path){
+int isDir(char * path){
     char* resp;
+    cJSON* obj;
     int s =0;
-    s=get(path,resp);
-    if(resp !=null){
+    if(strcmp(path, "/")==0)
+        return 1;
 
+    s=get(path,&resp);
+    if(resp !=NULL){
         //convert resp to json object, return true if "type=DEFAULT" is set in the response
-
+        obj = cJSON_Parse(resp);
+        if(cJSON_GetObjectItem(obj, "type") != NULL &&
+            strcmp(cJSON_GetObjectItem(obj, "type")->valuestring, "DEFAULT")==0)
+            return 1;
         free(resp);
     }
-}*/
+
+    return 0;
+}
 
 /*int main(int argc, char*argv[]){
 	char* data;
 	if(get("/", &data)>0)
 		fprintf(stdout,"get(\"/\")=%s",data);
+    return 0;
+
 }*/

@@ -1,11 +1,4 @@
 /*
-  FUSE: Filesystem in Userspace
-  Copyright (C) 2001-2007  Miklos Szeredi <miklos@szeredi.hu>
-
-  This program can be distributed under the terms of the GNU GPL.
-  See the file COPYING.
-
-  gcc -Wall `pkg-config fuse --cflags --libs` sfs.c -o sfs
 */
 
 #define FUSE_USE_VERSION 26
@@ -85,11 +78,14 @@ static int sfs_read(const char *path, char *buf, size_t size, off_t offset,
 		return -ENOENT;
 
     //read the streamfs path
+    fprintf("getting: %s\n", path);
     gsize = get(path, &getstat);
     if(gsize>0){
         sfs_str = (char*) malloc(gsize+1);
         strcpy(sfs_str, getstat);
 	    free(getstat);
+    } else {
+        return 0;
     }
 
 	len = strlen(sfs_str);

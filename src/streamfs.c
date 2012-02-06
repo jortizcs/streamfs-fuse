@@ -11,7 +11,7 @@
 #include <fcntl.h>
 
 static char *sfs_str = "Hello World!\n";
-static const char *sfs_path = "/sfs";
+static const char *sfs_path = "/temp";
 
 static int sfs_getattr(const char *path, struct stat *stbuf)
 {
@@ -25,7 +25,10 @@ static int sfs_getattr(const char *path, struct stat *stbuf)
 		stbuf->st_mode = S_IFREG | 0444;
 		stbuf->st_nlink = 1;
 		stbuf->st_size = strlen(sfs_str);
-	} else
+	} else if(strcmp(path, "/admin") == 0){
+        stbuf->st_mode = S_IFDIR | 0755;
+        stbuf->st_size=25;
+    } else 
 		res = -ENOENT;
 
 	return res;
@@ -36,17 +39,19 @@ static int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 {
     char* getstat;
     int gsize=0;
+    struct stat info;
 	(void) offset;
 	(void) fi;
 
-    
 	if (strcmp(path, "/") != 0)
 		return -ENOENT;
+
+    info.st_mode = S_IFDIR | 0x0755;
 
 	filler(buf, ".", NULL, 0);
 	filler(buf, "..", NULL, 0);
 	filler(buf, sfs_path + 1, NULL, 0);
-    filler(buf, "admin", NULL, 0);
+    filler(buf, "admin", &info, 0);
 
     //read the streamfs path
     gsize = get(path, &getstat);
@@ -78,7 +83,7 @@ static int sfs_read(const char *path, char *buf, size_t size, off_t offset,
 		return -ENOENT;
 
     //read the streamfs path
-    fprintf("getting: %s\n", path);
+    fprintf(stdout,"getting: %s\n", path);
     gsize = get(path, &getstat);
     if(gsize>0){
         sfs_str = (char*) malloc(gsize+1);

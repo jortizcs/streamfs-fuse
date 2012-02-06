@@ -15,7 +15,7 @@ char* get_resp;
 char* post_resp;
 char* put_resp;
 char* delete_resp;
-char* sfs_server = "http://localhost:8080";
+static const char* sfs_server = "http://localhost:8080";
 
 
 pthread_mutex_t get_lock;
@@ -36,9 +36,8 @@ int get(char * path, char** buffer){
         memset(fpath, 0, strlen(sfs_server) + strlen(path));
         strcpy(fpath, sfs_server);
         strcpy(&fpath[strlen(fpath)], path);
-        fprintf(stdout, "fpath=%s\n", fpath);
-        
-        
+        fprintf(stdout, "GET fpath=%s\n", fpath);
+
 		curl_easy_setopt(curl, CURLOPT_URL, fpath);
 		curl_easy_setopt(curl, CURLOPT_HEADER, 0);
         curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
@@ -49,8 +48,8 @@ int get(char * path, char** buffer){
         //bottlebeck at scale; must be re-designed
         pthread_mutex_lock (&get_lock);
 		res = curl_easy_perform(curl);
-        fprintf(stdout, "res=%d\n", (int)res);
-        if(res == CURLE_OK){
+        fprintf(stdout, "res=%d,\tmsg=%s\n", (int)res, curl_easy_strerror(res));
+        if(res != CURLE_HTTP_RETURNED_ERROR){//res == CURLE_OK){
             size = strlen(get_resp);
             if(size>sizeof(*buffer))
                 *buffer = malloc(strlen(get_resp));
@@ -69,7 +68,6 @@ int get(char * path, char** buffer){
 int get_writer(char *data, size_t size, size_t nmemb, char *buffer)
 {
     int result = 0;
-    fprintf(stdout, "what\n");
     if(data !=NULL && (get_resp == NULL || sizeof(get_resp)<(size * nmemb + 1)) )
         get_resp = (char*)malloc(strlen(data)*sizeof(char) + 1);
     strcpy(get_resp, data);
@@ -101,13 +99,12 @@ int isdir(char * path){
 /*int main(int argc, char*argv[]){
 	char* data;
 	if(get("/", &data)>0){
+        get("/", &data);
 		fprintf(stdout,"get(\"/\")=%s",data);
         free(data);
 
         fprintf(stdout, "isdir? %d\n", isdir("/temp"));
-        data = NULL;
-        fprintf(stdout, "isdir? %d\n", get("/sfs", &data));
-        free(data);
+        fprintf(stdout, "isdir? %d\n", isdir("/sfs"));
     }
     
     return 0;

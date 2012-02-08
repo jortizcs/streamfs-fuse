@@ -147,11 +147,41 @@ int sfs_mkdir(const char *path, mode_t mode)
 	    path, mode); 
     //retstat = mkdir(fpath, mode);
     retstat = mkdefault(path);
-    if(retstat !=0)
-        errno=retstat;
+    /*if(retstat !=0)
+        errno=retstat;*/
     
     //if (retstat < 0)
 	//retstat = sfs_error("sfs_mkdir mkdir");
+    
+    return retstat;
+}
+
+int sfs_mknod(const char *path, mode_t mode, dev_t dev)
+{
+    int retstat = 0;
+    
+    // On Linux this could just be 'mknod(path, mode, rdev)' but this
+    //  is more portable
+    if (S_ISREG(mode)) {
+        //retstat = open(fpath, O_CREAT | O_EXCL | O_WRONLY, mode);
+        retstat = mkstream(path);
+        /*if (retstat < 0)
+            retstat = sfs_error("sfs_mknod open");
+        else {
+            retstat = close(retstat);
+            if (retstat < 0)
+                retstat = sfs_error("sfs_mknod close");
+        }*/
+    } /*else
+        if (S_ISFIFO(mode)) {
+            retstat = mkfifo(fpath, mode);
+            if (retstat < 0)
+            retstat = sfs_error("sfs_mknod mkfifo");
+        } else {
+            retstat = mknod(fpath, mode, dev);
+            if (retstat < 0)
+            retstat = sfs_error("sfs_mknod mknod");
+        }*/
     
     return retstat;
 }
@@ -162,6 +192,7 @@ static struct fuse_operations sfs_oper = {
 	.open		= sfs_open,
 	.read		= sfs_read,
     .mkdir      = sfs_mkdir,
+    .mknod      = sfs_mknod,
 };
 
 int main(int argc, char *argv[])

@@ -7,8 +7,59 @@
 #include "sfslib.h"
 
 //int main(int, char*[]);
+static int get_writer(char *, size_t, size_t, char *);
+static size_t read_cr_callback(void *ptr, size_t size, size_t nmemb, void *stream);
+static size_t read_cs_callback(void *ptr, size_t size, size_t nmemb, void *stream);
+static char* split_parent_child(const char* path, int parent_child);
 
-int get(char * path, char** buffer){
+//GLOBALS
+static char* get_resp;
+static char* post_resp;
+static char* put_resp;
+static char* delete_resp;
+static const char* sfs_server = "http://localhost:8080";
+
+pthread_mutex_t get_lock;
+pthread_mutex_t put_lock;
+pthread_mutex_t post_lock;
+pthread_mutex_t delete_lock;
+
+static char* new_node_name;
+static int CR_BASE_SIZE;
+static int CS_BASE_SIZE;
+
+static int globals_set=0;
+
+inline static void set_globals(){
+    if(globals_set==0){
+        //set up global constants
+        //create default
+        char* out;
+        cJSON* json = cJSON_CreateObject();
+        cJSON_AddStringToObject(json, "operation", "create_resource");
+        cJSON_AddStringToObject(json, "resourceName", "");
+        cJSON_AddStringToObject(json, "resourceType", "default");
+        out = cJSON_Print(json);
+        CR_BASE_SIZE = strlen(out);
+        cJSON_Delete(json);
+        free(out);
+
+        //create stream
+        json = cJSON_CreateObject();
+        cJSON_AddStringToObject(json, "operation", "create_generic_publiser");
+        cJSON_AddStringToObject(json, "resourceName", "");
+        out = cJSON_Print(json);
+        CS_BASE_SIZE = strlen(out);
+        cJSON_Delete(json);
+        free(out);
+    
+        globals_set=1;
+    }
+}
+#define CREATE_DEFAULT_SIZE CR_BASE_SIZE*sizeof(char)
+#define CREATE_STREAM_SIZE CS_BASE_SIZE*sizeof(char)
+
+int get(const char * path, char** buffer){
 	CURL *curl;
 	CURLcode res;
     char* fpath;
@@ -53,7 +104,7 @@ int get(char * path, char** buffer){
     return 0;
 }
 
-int mkdefault(char * path){
+int mkdefault(const char * path){
 	CURL *curl;
 	CURLcode res;
     char* fpath;
@@ -79,13 +130,66 @@ int mkdefault(char * path){
 		curl_easy_setopt(curl, CURLOPT_URL, fpath);
 		curl_easy_setopt(curl, CURLOPT_HEADER, 1);
         curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
-        curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback);
+        curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_cr_callback);
         curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
         curl_easy_setopt(curl, CURLOPT_PUT, 1L);
         curl_easy_setopt(curl, CURLOPT_READDATA, hd_src);
         curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE,(curl_off_t)send_size);
                      
 
+        //We lock here for safety, bit this is a major performance
+        //bottlebeck at scale; must be re-designed
+        pthread_mutex_lock (&put_lock);
+		res = curl_easy_perform(curl);
+        curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
+        pthread_mutex_unlock (&put_lock);
+
+		curl_easy_cleanup(curl);
+        free(fpath);
+        free(parent);
+        free(hd_src);
+        free(new_node_name);
+
+        if(http_code==201L)
+            return 0;
+	}
+
+    errno = ENOENT;
+    return -1;
+}
+
+int mkstream(const char * path){
+	CURL *curl;
+	CURLcode res;
+    char* fpath;
+    char* parent;       //the directory to create the sub-directory in
+    char* hd_src;
+    long http_code;
+    int send_size=0;
+
+	curl = curl_easy_init();
+    fprintf(stdout, "mkstream::input_path=%s\n", path);
+	if(curl && path!=NULL) {
+        set_globals();
+        parent = split_parent_child(path, 0);
+        fpath = (char*)malloc(strlen(sfs_server) + strlen(parent));
+        memset(fpath, 0, strlen(sfs_server) + strlen(parent));
+        strcpy(fpath, sfs_server);
+        strcpy(&fpath[strlen(fpath)], parent);
+        fprintf(stdout, "PUT fpath=%s\n", fpath);
+
+        new_node_name = split_parent_child(path,1);
+        send_size = CREATE_DEFAULT_SIZE + strlen(new_node_name);
+        hd_src =(char*)malloc(send_size + 5);
+		curl_easy_setopt(curl, CURLOPT_URL, fpath);
+		curl_easy_setopt(curl, CURLOPT_HEADER, 1);
+        curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
+        curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_cs_callback);
+        curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
+        curl_easy_setopt(curl, CURLOPT_PUT, 1L);
+        curl_easy_setopt(curl, CURLOPT_READDATA, hd_src);
+        curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE,(curl_off_t)send_size);
+                     
         //We lock here for safety, bit this is a major performance
         //bottlebeck at scale; must be re-designed
         pthread_mutex_lock (&put_lock);
@@ -118,7 +222,7 @@ int get_writer(char *data, size_t size, size_t nmemb, char *buffer)
     return result;
 }
 
-int isdir(char * path){
+int isdir(const char * path){
     char* resp;
     cJSON* obj;
     int s =0;
@@ -138,15 +242,25 @@ int isdir(char * path){
     return 0;
 }
 
-static size_t read_callback(void *ptr, size_t size, size_t nmemb, void *stream){
+static size_t read_cr_callback(void *ptr, size_t size, size_t nmemb, void *stream){
     if(new_node_name != NULL && ptr != NULL){
         cJSON * json = cJSON_CreateObject();
         cJSON_AddStringToObject(json, "operation", "create_resource");
         cJSON_AddStringToObject(json, "resourceName", new_node_name);
         cJSON_AddStringToObject(json, "resourceType", "default");
         strncpy((char*)ptr, cJSON_Print(json), size*nmemb);
-        //fprintf(stdout, "read_callback::ptr=%s\n", (char*)ptr);
-        //free(new_node_name);
+        cJSON_Delete(json);
+        return strlen(ptr)*sizeof(char);
+    }
+    return 0;
+}
+
+static size_t read_cs_callback(void *ptr, size_t size, size_t nmemb, void *stream){
+    if(new_node_name != NULL && ptr != NULL){
+        cJSON * json = cJSON_CreateObject();
+        cJSON_AddStringToObject(json, "operation", "create_generic_publisher");
+        cJSON_AddStringToObject(json, "resourceName", new_node_name);
+        strncpy((char*)ptr, cJSON_Print(json), size*nmemb);
         cJSON_Delete(json);
         return strlen(ptr)*sizeof(char);
     }

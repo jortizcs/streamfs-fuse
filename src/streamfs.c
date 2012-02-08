@@ -19,23 +19,11 @@ static int sfs_getattr(const char *path, struct stat *stbuf)
 {
     char* getresp;
     cJSON* json;
-	int res = 0, isdir_t;
+	int res = 0, isdir_t, getok=0;
 
 	memset(stbuf, 0, sizeof(struct stat));
-	/*if (strcmp(path, "/") == 0) {
-		stbuf->st_mode = S_IFDIR | 0755;
-		stbuf->st_nlink = 2;
-	} else if (strcmp(path, sfs_path) == 0) {
-		stbuf->st_mode = S_IFREG | 0444;
-		stbuf->st_nlink = 1;
-		stbuf->st_size = strlen(sfs_str);
-	} else if(strcmp(path, "/admin") == 0){
-        stbuf->st_mode = S_IFDIR | 0755;
-        stbuf->st_size=25;
-    } else 
-		res = -ENOENT;*/
-    get((char*)path,&getresp);
-    if(getresp!=NULL){
+    getok=get((char*)path,&getresp);
+    if(getok>0){
         isdir_t = isdir((char*)path);
         json = cJSON_Parse(getresp);
         fprintf(stdout, "path=%s, resp=%s, isdir=%d\n", path, getresp, isdir_t);
@@ -48,8 +36,10 @@ static int sfs_getattr(const char *path, struct stat *stbuf)
         } 
         cJSON_Delete(json);
         free(getresp);
-    } else
+    } else {
+        fprintf(stdout, "%s does not exist\n", path);
         res = -ENOENT;
+    }
 
 	return res;
 }
@@ -149,11 +139,29 @@ static int sfs_read(const char *path, char *buf, size_t size, off_t offset,
 	return size;
 }
 
+/** Create a directory */
+int sfs_mkdir(const char *path, mode_t mode)
+{
+    int retstat = 0;
+    fprintf(stdout, "\nsfs_mkdir(path=\"%s\", mode=0%3o)\n",
+	    path, mode); 
+    //retstat = mkdir(fpath, mode);
+    retstat = mkdefault(path);
+    if(retstat !=0)
+        errno=retstat;
+    
+    //if (retstat < 0)
+	//retstat = sfs_error("sfs_mkdir mkdir");
+    
+    return retstat;
+}
+
 static struct fuse_operations sfs_oper = {
 	.getattr	= sfs_getattr,
 	.readdir	= sfs_readdir,
 	.open		= sfs_open,
 	.read		= sfs_read,
+    .mkdir      = sfs_mkdir,
 };
 
 int main(int argc, char *argv[])

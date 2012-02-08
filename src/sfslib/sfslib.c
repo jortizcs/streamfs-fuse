@@ -1,9 +1,10 @@
 #include <string.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <curl/curl.h>
 #include <pthread.h>
-#include "sfslib.h"
 #include "../cJSON/cJSON.h"
+#include "sfslib.h"
 
 //int main(int, char*[]);
 
@@ -46,7 +47,64 @@ int get(char * path, char** buffer){
 		curl_easy_cleanup(curl);
         free(fpath);
 	}
-	return size;
+
+    if(res!=CURLE_HTTP_RETURNED_ERROR)
+        return 1;
+    return 0;
+}
+
+int mkdefault(char * path){
+	CURL *curl;
+	CURLcode res;
+    char* fpath;
+    char* parent;       //the directory to create the sub-directory in
+    char* hd_src;
+    long http_code;
+    int send_size=0;
+
+	curl = curl_easy_init();
+    fprintf(stdout, "mkdefault::input_path=%s\n", path);
+	if(curl && path!=NULL) {
+        set_globals();
+        parent = split_parent_child(path, 0);
+        fpath = (char*)malloc(strlen(sfs_server) + strlen(parent));
+        memset(fpath, 0, strlen(sfs_server) + strlen(parent));
+        strcpy(fpath, sfs_server);
+        strcpy(&fpath[strlen(fpath)], parent);
+        fprintf(stdout, "PUT fpath=%s\n", fpath);
+
+        new_node_name = split_parent_child(path,1);
+        send_size = CREATE_DEFAULT_SIZE + strlen(new_node_name);
+        hd_src =(char*)malloc(send_size + 5);
+		curl_easy_setopt(curl, CURLOPT_URL, fpath);
+		curl_easy_setopt(curl, CURLOPT_HEADER, 1);
+        curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
+        curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback);
+        curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
+        curl_easy_setopt(curl, CURLOPT_PUT, 1L);
+        curl_easy_setopt(curl, CURLOPT_READDATA, hd_src);
+        curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE,(curl_off_t)send_size);
+                     
+
+        //We lock here for safety, bit this is a major performance
+        //bottlebeck at scale; must be re-designed
+        pthread_mutex_lock (&put_lock);
+		res = curl_easy_perform(curl);
+        curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
+        pthread_mutex_unlock (&put_lock);
+
+		curl_easy_cleanup(curl);
+        free(fpath);
+        free(parent);
+        free(hd_src);
+        free(new_node_name);
+
+        if(http_code==201L)
+            return 0;
+	}
+
+    errno = ENOENT;
+    return -1;
 }
 
 int get_writer(char *data, size_t size, size_t nmemb, char *buffer)
@@ -80,8 +138,30 @@ int isdir(char * path){
     return 0;
 }
 
+static size_t read_callback(void *ptr, size_t size, size_t nmemb, void *stream){
+    if(new_node_name != NULL && ptr != NULL){
+        cJSON * json = cJSON_CreateObject();
+        cJSON_AddStringToObject(json, "operation", "create_resource");
+        cJSON_AddStringToObject(json, "resourceName", new_node_name);
+        cJSON_AddStringToObject(json, "resourceType", "default");
+        strncpy((char*)ptr, cJSON_Print(json), size*nmemb);
+        //fprintf(stdout, "read_callback::ptr=%s\n", (char*)ptr);
+        //free(new_node_name);
+        cJSON_Delete(json);
+        return strlen(ptr)*sizeof(char);
+    }
+    return 0;
+}
+
 /*int main(int argc, char*argv[]){
 	char* data;
+    char* ptr;
+    char* out;
+    char* tok;
+    char* blah;
+    char* last_tok;
+    char* parent;
+    cJSON* json;
 	if(get("/", &data)>0){
         get("/", &data);
 		fprintf(stdout,"get(\"/\")=%s",data);
@@ -90,6 +170,85 @@ int isdir(char * path){
         fprintf(stdout, "isdir? %d\n", isdir("/temp"));
         fprintf(stdout, "isdir? %d\n", isdir("/sfs"));
     }
-    
+
+    set_globals();
+    new_node_name = "blah";
+    ptr = (char*)malloc(CREATE_DEFAULT_SIZE + strlen(new_node_name) + 1);
+    json = cJSON_CreateObject();
+    cJSON_AddStringToObject(json, "operation", "create_resource");
+    cJSON_AddStringToObject(json, "resourceName", "blah");
+    cJSON_AddStringToObject(json, "resourceType", "default");
+    out = cJSON_Print(json);
+    fprintf(stdout, "out=\n\t%s\n", out);
+    fprintf(stdout, "strlen(out)=%d\n", (int)strlen(out));
+    strncpy(ptr,out, CREATE_DEFAULT_SIZE + strlen(new_node_name));
+    fprintf(stdout, "ptr=%s\n", ptr);
+    fprintf(stdout, "strlen(ptr)=%d\n", (int)strlen(ptr));
+    cJSON_Delete(json);
+    free(ptr);
+    free(out);
+
+    blah = split_parent_child("/temp", 0);
+    fprintf(stdout, "parent=%s\n", blah);
+    free(blah);
+
+    blah = split_parent_child("/temp", 1);
+    fprintf(stdout, "child=%s\n", blah);
+    free(blah);
+
     return 0;
 }*/
+    
+
+static char* split_parent_child(const char* path, int parent_child){
+    char * fullpath;
+    char* parent;
+    char* last_tok;
+    char* tok;
+    int new_length=0;
+    if(path != NULL){
+        //root case
+        if(strcmp(path, "/")==0 && parent_child==0){
+            fullpath= (char*)malloc(sizeof(char)*strlen(path) + 1);
+            memset(fullpath, 0, sizeof(char)*strlen(path) + 1);
+            strcpy(fullpath,"/");
+            return fullpath;
+        } else if(strcmp(path, "/")==0 && parent_child!=0){
+            last_tok = (char*)malloc(sizeof(char)*strlen(path) + 1);
+            memset(last_tok, 0, sizeof(char)*strlen(path) + 1);
+            last_tok = (char*)malloc(sizeof(char)*strlen(path) + 1);
+            strcpy(last_tok, "");
+            return last_tok;
+        }
+
+        //non-corner case
+        fullpath= (char*)malloc(sizeof(char)*strlen(path) + 1);
+        memset(fullpath, 0, sizeof(char)*strlen(path) + 1);
+        last_tok = (char*)malloc(sizeof(char)*strlen(path) + 1);
+        memset(last_tok, 0, sizeof(char)*strlen(path) + 1);
+        strcpy(fullpath, path);
+        tok = strtok(fullpath, "/");
+        while(tok != NULL){
+            memset(last_tok, 0, sizeof(char)*strlen(path) + 1);
+            strcpy(last_tok,tok);
+            last_tok[strlen(last_tok)]='\0';
+            tok = strtok(NULL, "/");
+        }
+        strcpy(fullpath, path);
+        parent = (char*) malloc(sizeof(char)*(strlen(fullpath)-strlen(last_tok)));
+        new_length= strlen(fullpath)-(strlen(last_tok)+1);
+        strncpy(parent, fullpath, new_length);
+        parent[new_length]='\0';
+        free(fullpath);
+        if(parent_child==0){
+            if(strcmp(parent, "")==0)
+                strcpy(parent, "/\0");
+            free(last_tok);
+            return parent;
+        } else {
+            free(parent);
+            return last_tok;
+        }
+    }
+    return NULL;
+}

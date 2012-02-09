@@ -104,6 +104,55 @@ int get(const char * path, char** buffer){
     return 0;
 }
 
+int delete_(const char * path){
+	CURL *curl;
+	CURLcode res;
+    char* fpath;
+    int size=0;
+    long http_code=200L;
+
+	curl = curl_easy_init();
+    fprintf(stdout, "input_path=%s\n", path);
+	if(curl && path!=NULL) {
+        fpath = (char*)malloc(strlen(sfs_server) + strlen(path));
+        memset(fpath, 0, strlen(sfs_server) + strlen(path));
+        strcpy(fpath, sfs_server);
+        strcpy(&fpath[strlen(fpath)], path);
+        fprintf(stdout, "DELETE fpath=%s\n", fpath);
+
+		curl_easy_setopt(curl, CURLOPT_URL, fpath);
+		curl_easy_setopt(curl, CURLOPT_HEADER, 0);
+        curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1);
+        curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
+
+        res = curl_easy_perform(curl);
+        curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
+        //We lock here for safety, bit this is a major performance
+        //bottlebeck at scale; must be re-designed
+        /*pthread_mutex_lock (&delete_lock);
+		res = curl_easy_perform(curl);
+        fprintf(stdout, "res=%d,\tmsg=%s\n", (int)res, curl_easy_strerror(res));
+        if(res != CURLE_HTTP_RETURNED_ERROR){//res == CURLE_OK){
+            size = strlen(get_resp);
+            if(size>sizeof(*buffer))
+                *buffer = malloc(strlen(get_resp));
+            strcpy(*buffer, get_resp);
+            free(get_resp);
+        }
+        pthread_mutex_unlock (&delete_lock);*/
+
+		/* always cleanup */ 
+		curl_easy_cleanup(curl);
+        free(fpath);
+	}
+
+    if(http_code != 200L)
+        return -1;
+    return 0;
+}
+
+
+
 int mkdefault(const char * path){
 	CURL *curl;
 	CURLcode res;

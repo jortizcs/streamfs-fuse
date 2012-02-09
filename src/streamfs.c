@@ -13,7 +13,7 @@
 #include "sfslib/sfslib.h"
 
 static char *sfs_str = "Hello World!\n";
-static const char *sfs_path = "/temp";
+//static const char *sfs_path = "/temp";
 
 static int sfs_getattr(const char *path, struct stat *stbuf)
 {
@@ -32,7 +32,8 @@ static int sfs_getattr(const char *path, struct stat *stbuf)
             //stbuf->st_nlink = 2;
         } else {
             stbuf->st_mode = S_IFREG | 0x0444;
-		    stbuf->st_nlink = 1;
+		    //stbuf->st_nlink = 1;
+            stbuf->st_size = strlen(getresp);
         } 
         cJSON_Delete(json);
         free(getresp);
@@ -82,21 +83,11 @@ static int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	    free(getstat);
     } else
         return -ENOENT;
-	/*if (strcmp(path, "/") != 0)
-		return -ENOENT;
-
-    info.st_mode = S_IFDIR | 0x0755;
-
-	filler(buf, ".", NULL, 0);
-	filler(buf, "..", NULL, 0);
-	filler(buf, sfs_path + 1, NULL, 0);
-    filler(buf, "admin", &info, 0);
-    */
 
 	return 0;
 }
 
-static int sfs_open(const char *path, struct fuse_file_info *fi)
+/*static int sfs_open(const char *path, struct fuse_file_info *fi)
 {
 	if (strcmp(path, sfs_path) != 0)
 		return -ENOENT;
@@ -105,6 +96,46 @@ static int sfs_open(const char *path, struct fuse_file_info *fi)
 		return -EACCES;
 
 	return 0;
+}*/
+
+int sfs_flush(const char *path, struct fuse_file_info *fi)
+{
+    int retstat = 0;
+    
+    //log_msg("\nsfs_flush(path=\"%s\", fi=0x%08x)\n", path, fi);
+    // no need to get fpath on this one, since I work from fi->fh not the path
+    //log_fi(fi);
+	
+    return retstat;
+}
+
+int sfs_release(const char *path, struct fuse_file_info *fi)
+{
+    int retstat = 0;
+    
+    /*log_msg("\nsfs_release(path=\"%s\", fi=0x%08x)\n",
+	  path, fi);
+    log_fi(fi);
+
+    // We need to close the file.  Had we allocated any resources
+    // (buffers etc) we'd need to free them here as well.
+    retstat = close(fi->fh);*/
+    
+    return retstat;
+}
+
+int sfs_unlink(const char *path)
+{
+    int retstat = 0;
+    retstat = delete_(path);
+    return retstat;
+}
+
+int sfs_rmdir(const char *path)
+{
+    int retstat = 0;
+    retstat = delete_(path);
+    return retstat;
 }
 
 static int sfs_read(const char *path, char *buf, size_t size, off_t offset,
@@ -114,8 +145,6 @@ static int sfs_read(const char *path, char *buf, size_t size, off_t offset,
     int gsize=0;
 	size_t len;
 	(void) fi;
-	if(strcmp(path, sfs_path) != 0)
-		return -ENOENT;
 
     //read the streamfs path
     fprintf(stdout,"getting: %s\n", path);
@@ -132,11 +161,27 @@ static int sfs_read(const char *path, char *buf, size_t size, off_t offset,
 	if (offset < len) {
 		if (offset + size > len)
 			size = len - offset;
+        else
+            size = len;
+		memcpy(buf, sfs_str + offset, size);
+        fprintf(stdout, "\tsfs_read::buf=%s\n\tsize=%d\n", buf,(int)size);
+	} else
+		size = 0;
+
+    fprintf(stdout, "returning size=%d\n", (int)size);
+	return size;
+    /*size_t len;
+	(void) fi;
+
+	len = strlen(sfs_str);
+	if (offset < len) {
+		if (offset + size > len)
+			size = len - offset;
 		memcpy(buf, sfs_str + offset, size);
 	} else
 		size = 0;
 
-	return size;
+	return size;*/
 }
 
 /** Create a directory */
@@ -145,14 +190,7 @@ int sfs_mkdir(const char *path, mode_t mode)
     int retstat = 0;
     fprintf(stdout, "\nsfs_mkdir(path=\"%s\", mode=0%3o)\n",
 	    path, mode); 
-    //retstat = mkdir(fpath, mode);
     retstat = mkdefault(path);
-    /*if(retstat !=0)
-        errno=retstat;*/
-    
-    //if (retstat < 0)
-	//retstat = sfs_error("sfs_mkdir mkdir");
-    
     return retstat;
 }
 
@@ -186,13 +224,42 @@ int sfs_mknod(const char *path, mode_t mode, dev_t dev)
     return retstat;
 }
 
+int sfs_open(const char *path, struct fuse_file_info *fi)
+{
+    int retstat = 0;
+    int fd=1;
+    fi->fh = fd;
+    return retstat;
+}
+
+int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
+	     struct fuse_file_info *fi)
+{
+    int retstat = 0;
+    return retstat;
+}
+
+int sfs_utime(const char *path, struct utimbuf *ubuf)
+{
+    int retstat = 0;
+    return retstat;
+}
+
 static struct fuse_operations sfs_oper = {
 	.getattr	= sfs_getattr,
 	.readdir	= sfs_readdir,
-	.open		= sfs_open,
+    .open       = sfs_open, 
 	.read		= sfs_read,
+
+    .flush      = sfs_flush,
+    .release    = sfs_release,
+    
     .mkdir      = sfs_mkdir,
     .mknod      = sfs_mknod,
+    .write      = sfs_write,
+    .utime      = sfs_utime,
+    .unlink     = sfs_unlink,
+    .rmdir      = sfs_rmdir,
 };
 
 int main(int argc, char *argv[])

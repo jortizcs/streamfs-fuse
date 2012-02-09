@@ -28,10 +28,10 @@ static int sfs_getattr(const char *path, struct stat *stbuf)
         json = cJSON_Parse(getresp);
         fprintf(stdout, "path=%s, resp=%s, isdir=%d\n", path, getresp, isdir_t);
         if(isdir_t==1){
-            stbuf->st_mode = S_IFDIR | 0x0755;
+            stbuf->st_mode = S_IFDIR | 0755;
             //stbuf->st_nlink = 2;
         } else {
-            stbuf->st_mode = S_IFREG | 0x0444;
+            stbuf->st_mode = S_IFREG | 0666;
 		    //stbuf->st_nlink = 1;
             stbuf->st_size = strlen(getresp);
         } 
@@ -236,10 +236,33 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
 	     struct fuse_file_info *fi)
 {
     int retstat = 0;
+    fprintf(stdout, "Write called\n");
     return retstat;
 }
 
 int sfs_utime(const char *path, struct utimbuf *ubuf)
+{
+    int retstat = 0;
+    return retstat;
+}
+
+/** Change the permission bits of a file */
+int sfs_chmod(const char *path, mode_t mode)
+{
+    int retstat = 0;
+    return retstat;
+}
+
+/** Change the owner and group of a file */
+int sfs_chown(const char *path, uid_t uid, gid_t gid)
+  
+{
+    int retstat = 0;
+    return retstat;
+}
+
+/** Change the size of a file */
+int sfs_truncate(const char *path, off_t newsize)
 {
     int retstat = 0;
     return retstat;
@@ -250,16 +273,17 @@ static struct fuse_operations sfs_oper = {
 	.readdir	= sfs_readdir,
     .open       = sfs_open, 
 	.read		= sfs_read,
-
     .flush      = sfs_flush,
     .release    = sfs_release,
-    
+    .chmod      = sfs_chmod,
+    .chown      = sfs_chown,
     .mkdir      = sfs_mkdir,
     .mknod      = sfs_mknod,
     .write      = sfs_write,
     .utime      = sfs_utime,
     .unlink     = sfs_unlink,
     .rmdir      = sfs_rmdir,
+    .truncate   = sfs_truncate,
 };
 
 int main(int argc, char *argv[])

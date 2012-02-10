@@ -9,16 +9,20 @@
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include "cJSON/cJSON.h"
 #include "sfslib/sfslib.h"
-
+#define SFS_DATA ((struct sfs_state *) fuse_get_context()->private_data)
 static char *sfs_str = "Hello World!\n";
 //static const char *sfs_path = "/temp";
+static cJSON* queryres_cache=NULL;
+static pthread_mutex_t qres_lock;
 
 static int sfs_getattr(const char *path, struct stat *stbuf)
 {
     char* getresp;
     cJSON* json;
+    cJSON* prev_reply_json;
 	int res = 0, isdir_t, getok=0;
 
 	memset(stbuf, 0, sizeof(struct stat));
@@ -33,6 +37,12 @@ static int sfs_getattr(const char *path, struct stat *stbuf)
         } else {
             stbuf->st_mode = S_IFREG | 0666;
 		    //stbuf->st_nlink = 1;
+            pthread_mutex_lock(&qres_lock);
+            if((prev_reply_json=cJSON_GetObjectItem(queryres_cache, path)) != NULL){
+                free(getresp);
+                getresp = cJSON_Print(prev_reply_json);
+            }
+            pthread_mutex_unlock(&qres_lock);
             stbuf->st_size = strlen(getresp);
         } 
         cJSON_Delete(json);
@@ -101,26 +111,12 @@ static int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 int sfs_flush(const char *path, struct fuse_file_info *fi)
 {
     int retstat = 0;
-    
-    //log_msg("\nsfs_flush(path=\"%s\", fi=0x%08x)\n", path, fi);
-    // no need to get fpath on this one, since I work from fi->fh not the path
-    //log_fi(fi);
-	
     return retstat;
 }
 
 int sfs_release(const char *path, struct fuse_file_info *fi)
 {
     int retstat = 0;
-    
-    /*log_msg("\nsfs_release(path=\"%s\", fi=0x%08x)\n",
-	  path, fi);
-    log_fi(fi);
-
-    // We need to close the file.  Had we allocated any resources
-    // (buffers etc) we'd need to free them here as well.
-    retstat = close(fi->fh);*/
-    
     return retstat;
 }
 
@@ -143,12 +139,28 @@ static int sfs_read(const char *path, char *buf, size_t size, off_t offset,
 {
     char* getstat;
     int gsize=0;
+    cJSON* prev_reply_json;
+    int retqrep=0;
 	size_t len;
 	(void) fi;
 
+    //check if this stream file was previously queried
+    //if it was, return that reply.
+    pthread_mutex_lock(&qres_lock);
+    if((prev_reply_json=cJSON_GetObjectItem(queryres_cache, path)) != NULL){
+        getstat = cJSON_Print(prev_reply_json);
+        gsize=strlen(getstat);
+        fprintf(stdout, "prev_qres=%s\n", getstat);
+        cJSON_DetachItemFromObject(queryres_cache, path);
+        retqrep = 1;
+    }
+    pthread_mutex_unlock(&qres_lock);
+
     //read the streamfs path
     fprintf(stdout,"getting: %s\n", path);
-    gsize = get((char*)path, &getstat);
+    //if the file was not previously queried, return the GET reply from this file
+    if(retqrep==0)
+        gsize = get((char*)path, &getstat);
     if(gsize>0){
         sfs_str = (char*) malloc(gsize+1);
         strcpy(sfs_str, getstat);
@@ -170,18 +182,6 @@ static int sfs_read(const char *path, char *buf, size_t size, off_t offset,
 
     fprintf(stdout, "returning size=%d\n", (int)size);
 	return size;
-    /*size_t len;
-	(void) fi;
-
-	len = strlen(sfs_str);
-	if (offset < len) {
-		if (offset + size > len)
-			size = len - offset;
-		memcpy(buf, sfs_str + offset, size);
-	} else
-		size = 0;
-
-	return size;*/
 }
 
 /** Create a directory */
@@ -236,7 +236,30 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
 	     struct fuse_file_info *fi)
 {
     int retstat = 0;
-    fprintf(stdout, "Write called\n");
+    char* queryrep;
+    const char* queryresp_;
+    char* query_prefix = "?query=true&";
+    char* fpath;
+    fprintf(stdout, "buf=%s\n", buf);
+    fpath = (char*) malloc(sizeof(char)*(strlen(path) + strlen(query_prefix) + strlen(buf)));
+    strcpy(fpath, path);
+    strcat(fpath, query_prefix);
+    strcat(fpath, buf);
+    fprintf(stdout, "fullpath=%s\n", fpath);
+    get(fpath, &queryrep);
+    if(queryrep != NULL){
+        queryresp_ = queryrep;
+        retstat = strlen(buf)*sizeof(char);
+        fprintf(stdout, "query_reply=%s\n", queryrep);
+        pthread_mutex_lock(&qres_lock);
+        if(cJSON_GetObjectItem(queryres_cache, path) == NULL)
+            cJSON_AddStringToObject(queryres_cache, path, queryresp_);
+        else
+            cJSON_ReplaceItemInObject(queryres_cache, path, cJSON_CreateString(queryresp_));
+        pthread_mutex_unlock(&qres_lock);
+        free(queryrep);
+    }
+    free(fpath);
     return retstat;
 }
 
@@ -255,7 +278,6 @@ int sfs_chmod(const char *path, mode_t mode)
 
 /** Change the owner and group of a file */
 int sfs_chown(const char *path, uid_t uid, gid_t gid)
-  
 {
     int retstat = 0;
     return retstat;
@@ -268,7 +290,25 @@ int sfs_truncate(const char *path, off_t newsize)
     return retstat;
 }
 
+void* sfs_init(struct fuse_conn_info *conn)
+{
+    pthread_mutex_lock(&qres_lock);
+    queryres_cache = cJSON_CreateObject();
+    pthread_mutex_unlock(&qres_lock);
+    return SFS_DATA;
+}
+
+void sfs_destroy(void* userdata)
+{
+    pthread_mutex_lock(&qres_lock);
+    if(queryres_cache != NULL)
+        cJSON_Delete(queryres_cache);
+    pthread_mutex_unlock(&qres_lock);
+}
+
 static struct fuse_operations sfs_oper = {
+    .init       = sfs_init,
+    .destroy    = sfs_destroy,
 	.getattr	= sfs_getattr,
 	.readdir	= sfs_readdir,
     .open       = sfs_open, 

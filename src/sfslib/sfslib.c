@@ -19,10 +19,10 @@ static char* put_resp;
 static char* delete_resp;
 static const char* sfs_server = "http://localhost:8080";
 
-pthread_mutex_t get_lock;
-pthread_mutex_t put_lock;
-pthread_mutex_t post_lock;
-pthread_mutex_t delete_lock;
+static pthread_mutex_t get_lock;
+static pthread_mutex_t put_lock;
+static pthread_mutex_t post_lock;
+static pthread_mutex_t delete_lock;
 
 static char* new_node_name;
 static int CR_BASE_SIZE;

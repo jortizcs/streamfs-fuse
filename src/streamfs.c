@@ -25,23 +25,29 @@ static char* fmt_ts_query_result(cJSON* prev_reply_json, const char* path){
     char* resp_cpy_str;         //feed()'d locally
     char* fmtstr;               //free()'d by caller
     cJSON* data_obj;            //delete not needed
-    cJSON* resp_cpy;            //delete not needed
-    //cJSON* prev_reply_json;     //delete no needed
     cJSON* tsarray;             //delete not needed
     int i=0,dtptct=0;
 
     /*pthread_mutex_lock(&qres_lock);
     if((prev_reply_json=cJSON_GetObjectItem(queryres_cache, path)) != NULL){*/
-    resp_cpy_str = cJSON_Print(prev_reply_json);
+    resp_cpy_str = cJSON_PrintUnformatted(prev_reply_json);
     fprintf(stdout, "resp_cpy_str=%s\n", resp_cpy_str);
-    resp_cpy = cJSON_Parse(resp_cpy_str);
+    if(prev_reply_json == NULL)
+        fprintf(stdout, "Previously reply is NULL");
+    //resp_cpy = cJSON_Parse(resp_cpy_str);
     fmtstr = (char*)malloc(strlen(resp_cpy_str));
     memset(fmtstr, 0, sizeof(fmtstr));
     free(resp_cpy_str);
     /*}
     pthread_mutex_unlock(&qres_lock);*/
+    tsarray=cJSON_GetObjectItem(prev_reply_json, "ts_query_results");
+    if(tsarray!=NULL){
+        fprintf(stdout, "tsarray NOT NULL\n");
+    } else {
+        fprintf(stdout, "tsarray NULL\n");
+    }
 
-    if(resp_cpy != NULL && (tsarray=cJSON_GetObjectItem(resp_cpy, "ts_query_results"))!=NULL){
+    if(tsarray!=NULL){
         dtptct = cJSON_GetArraySize(tsarray);
         fprintf(stdout, "array_size=%d\n", dtptct);
         if(dtptct>0){
@@ -54,8 +60,7 @@ static char* fmt_ts_query_result(cJSON* prev_reply_json, const char* path){
             
         }
         fprintf(stdout, "fmtstr=\n%s", fmtstr);
-        cJSON_Delete(resp_cpy);
-    
+        //cJSON_Delete(resp_cpy);
     }
     return fmtstr;
 }
@@ -65,6 +70,7 @@ static int sfs_getattr(const char *path, struct stat *stbuf)
     char* getresp;
     cJSON* json;
     cJSON* prev_reply_json;
+    cJSON* tsres;
 	int res = 0, isdir_t;
 
 	memset(stbuf, 0, sizeof(struct stat));
@@ -80,8 +86,13 @@ static int sfs_getattr(const char *path, struct stat *stbuf)
             stbuf->st_mode = S_IFREG | 0666;
 		    //stbuf->st_nlink = 1;
             pthread_mutex_lock(&qres_lock);
-            if((prev_reply_json=cJSON_GetObjectItem(queryres_cache, path)) != NULL)
+            if((prev_reply_json=cJSON_GetObjectItem(queryres_cache, path)) != NULL){
+                tsres = cJSON_GetObjectItem(prev_reply_json, "ts_query_results");
+                if(tsres != NULL){
+                    fprintf(stdout, "tsres NOT NULL\n");
+                } else  fprintf(stdout, "tsres NULL\n");
                 getresp = fmt_ts_query_result(prev_reply_json, path);
+            }
             pthread_mutex_unlock(&qres_lock);
             stbuf->st_size = strlen(getresp);
         } 
@@ -280,22 +291,29 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
     const char* queryresp_;
     char* query_prefix = "?query=true&";
     char* fpath;
+    char* p;
+    int i=0;
+    cJSON* resp_json;
     fprintf(stdout, "buf=%s\n", buf);
     fpath = (char*) malloc(sizeof(char)*(strlen(path) + strlen(query_prefix) + strlen(buf)));
     strcpy(fpath, path);
     strcat(fpath, query_prefix);
-    strcat(fpath, buf);
+    strncat(fpath, buf+offset, size);
+    p = strchr(fpath,'\n');
+    if (p)
+      *p = '\0';
     fprintf(stdout, "fullpath=%s\n", fpath);
     queryrep=get(fpath);
     if(strlen(queryrep)>0){
         queryresp_ = queryrep;
+        resp_json = cJSON_Parse(queryrep);
         retstat = strlen(buf)*sizeof(char);
         fprintf(stdout, "query_reply=%s\n", queryrep);
         pthread_mutex_lock(&qres_lock);
         if(cJSON_GetObjectItem(queryres_cache, path) == NULL)
-            cJSON_AddStringToObject(queryres_cache, path, queryresp_);
+            cJSON_AddItemToObject(queryres_cache, path, resp_json);
         else
-            cJSON_ReplaceItemInObject(queryres_cache, path, cJSON_CreateString(queryresp_));
+            cJSON_ReplaceItemInObject(queryres_cache, path, resp_json);
         pthread_mutex_unlock(&qres_lock);
     }
     free(fpath);

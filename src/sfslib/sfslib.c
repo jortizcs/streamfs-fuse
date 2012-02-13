@@ -12,7 +12,9 @@ void test2();
 void test3();
 void test4();
 void test5();
-char* fmt_ts_query_result(cJSON* queryres_cache, const char* path);
+void test6();
+//char* fmt_ts_query_result(cJSON* queryres_cache, const char* path);
+static char* fmt_ts_query_result(cJSON* prev_reply_json, const char* path);
 size_t get_writer( void *buffer, size_t size, size_t nmemb, void *userp );
 size_t read_cr_callback(void *ptr, size_t size, size_t nmemb, void *stream);
 size_t read_cs_callback(void *ptr, size_t size, size_t nmemb, void *stream);
@@ -88,14 +90,18 @@ void shutdown_sfslib(){
 size_t get_writer( void *buffer, size_t size, size_t nmemb, void *userp )
 {
     int segsize = size * nmemb;
-    if(get_resp!=NULL){
+    /*if(get_resp!=NULL){
         free(get_resp);
         get_resp=NULL;
-    }
-    get_resp =(char*)malloc(segsize+1);
-    memset(get_resp, 0, sizeof(get_resp));
-    memcpy( (void *)get_resp, buffer, (size_t)segsize );
-    get_resp[segsize]='\0';
+    }*/
+    if(sizeof(get_resp)-strlen(get_resp) < size*nmemb)
+        get_resp = realloc(get_resp, sizeof(get_resp) + (size*nmemb));
+    //get_resp =(char*)calloc(segsize+1);
+    //memset(get_resp, 0, segsize+1);
+    //fprintf(stdout, "\nbuffer=%s\n", (char*)buffer);
+    //memcpy( (void *)get_resp, buffer, (size_t)segsize );
+    strcat(get_resp, buffer);
+    //get_resp[segsize]='\0';
     return segsize;
 }
 
@@ -112,6 +118,9 @@ char* get( const char* path)
         return 0;
     }
 
+    if(get_resp==NULL)
+        get_resp = (char*) calloc(1048576, sizeof(char));
+    memset(get_resp, 0, sizeof(get_resp));
     memset(fpath, 0, MAX_BUF);
     strcpy(fpath, sfs_server);
     strcat(fpath, path);
@@ -136,12 +145,12 @@ char* get( const char* path)
     /* Emit the page if curl indicates that no errors occurred */
     if ( ret != 0 ) 
         memset(get_resp, 0, sizeof(get_resp));
+    get_resp[last_index_of(get_resp, '}')+1]='\0';
     return get_resp;
 }
 
 int delete_(const char * path){
 	CURLcode res;
-    char* fpath;
     long http_code=200L;
 
     fprintf(stdout, "input_path=%s\n", path);
@@ -371,7 +380,7 @@ char* split_parent_child(const char* path, int parent_child){
 
 /*int main(int argc, char*argv[]){
     init_sfslib();
-    test();
+    test6();
     shutdown_sfslib();
     return 0;
 }*/
@@ -425,13 +434,79 @@ void test3(){
     //fprintf(stdout, "test3::get(\"temp\")=%s\n", resp);
 }
 
-void test5(){
-    delete_("/temp/strm1");
-    delete_("/temp");
-}
-
 void test4(){
     mkstream("/temp/strm1");
     //resp = get("/temp");
     //fprintf(stdout, "test3::get(\"temp\")=\%s\n", resp);
 }
+
+void test5(){
+    delete_("/temp/strm1");
+    delete_("/temp");
+}
+
+void test6(){
+    char* resp;
+    cJSON* cache;
+    cJSON* resp_json;
+    cJSON* resp_json_ref;
+    char * prefix = "/homes/jorge/acmes/2218/power";
+    resp=get("/homes/jorge/acmes/2218/power?query=true&ts_timestamp=lt:now,gte:now-1800");
+    if(strlen(resp)>0){
+        cache = cJSON_CreateObject();
+        fprintf(stdout, "resp=%s\n\n\tldix=%d, strlen=%d\n", resp, last_index_of(resp, '}'), (int)strlen(resp));
+        resp_json = cJSON_Parse(resp);
+        if(resp_json!=NULL){
+            cJSON_AddItemToObject(cache, prefix, resp_json);
+            resp_json_ref = cJSON_GetObjectItem(cache, prefix);
+            fmt_ts_query_result(resp_json_ref, prefix);
+        } else{
+            fprintf(stdout, "Couldn't parse the response\n");
+        }
+        cJSON_Delete(cache);
+    }
+}
+
+static char* fmt_ts_query_result(cJSON* prev_reply_json, const char* path){
+    char* resp_cpy_str;         //feed()'d locally
+    char* fmtstr;               //free()'d by caller
+    cJSON* data_obj;            //delete not needed
+    cJSON* tsarray;             //delete not needed
+    int i=0,dtptct=0;
+
+    /*pthread_mutex_lock(&qres_lock);
+    if((prev_reply_json=cJSON_GetObjectItem(queryres_cache, path)) != NULL){*/
+    resp_cpy_str = cJSON_PrintUnformatted(prev_reply_json);
+    fprintf(stdout, "resp_cpy_str=%s\n", resp_cpy_str);
+    //resp_cpy = cJSON_Parse(resp_cpy_str);
+    fmtstr = (char*)malloc(strlen(resp_cpy_str));
+    memset(fmtstr, 0, sizeof(fmtstr));
+    free(resp_cpy_str);
+    /*}
+    pthread_mutex_unlock(&qres_lock);*/
+    tsarray=cJSON_GetObjectItem(prev_reply_json, "ts_query_results");
+    if(tsarray!=NULL){
+        fprintf(stdout, "tsarray NOT NULL\n");
+    } else {
+        fprintf(stdout, "tsarray NULL\n");
+    }
+
+    if(tsarray!=NULL){
+        dtptct = cJSON_GetArraySize(tsarray);
+        fprintf(stdout, "array_size=%d\n", dtptct);
+        if(dtptct>0){
+            for(i=0; i<dtptct; ++i){
+                data_obj = cJSON_GetArrayItem(tsarray, i);
+                sprintf(fmtstr + strlen(fmtstr), "%s %s\n", 
+                    cJSON_Print(cJSON_GetObjectItem(data_obj,"ts")),
+                    cJSON_Print(cJSON_GetObjectItem(data_obj, "value")));
+            }
+            
+        }
+        fprintf(stdout, "fmtstr=\n%s", fmtstr);
+        //cJSON_Delete(resp_cpy);
+    
+    }
+    return fmtstr;
+}
+

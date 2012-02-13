@@ -12,22 +12,64 @@
 #include <pthread.h>
 #include "cJSON/cJSON.h"
 #include "sfslib/sfslib.h"
+
 #define SFS_DATA ((struct sfs_state *) fuse_get_context()->private_data)
+
 static char *sfs_str = "Hello World!\n";
 //static const char *sfs_path = "/temp";
 static cJSON* queryres_cache=NULL;
 static pthread_mutex_t qres_lock;
+
+//the returned string MUST be freed after it's used.
+static char* fmt_ts_query_result(cJSON* prev_reply_json, const char* path){
+    char* resp_cpy_str;         //feed()'d locally
+    char* fmtstr;               //free()'d by caller
+    cJSON* data_obj;            //delete not needed
+    cJSON* resp_cpy;            //delete not needed
+    //cJSON* prev_reply_json;     //delete no needed
+    cJSON* tsarray;             //delete not needed
+    int i=0,dtptct=0;
+
+    /*pthread_mutex_lock(&qres_lock);
+    if((prev_reply_json=cJSON_GetObjectItem(queryres_cache, path)) != NULL){*/
+    resp_cpy_str = cJSON_Print(prev_reply_json);
+    fprintf(stdout, "resp_cpy_str=%s\n", resp_cpy_str);
+    resp_cpy = cJSON_Parse(resp_cpy_str);
+    fmtstr = (char*)malloc(strlen(resp_cpy_str));
+    memset(fmtstr, 0, sizeof(fmtstr));
+    free(resp_cpy_str);
+    /*}
+    pthread_mutex_unlock(&qres_lock);*/
+
+    if(resp_cpy != NULL && (tsarray=cJSON_GetObjectItem(resp_cpy, "ts_query_results"))!=NULL){
+        dtptct = cJSON_GetArraySize(tsarray);
+        fprintf(stdout, "array_size=%d\n", dtptct);
+        if(dtptct>0){
+            for(i=0; i<dtptct; ++i){
+                data_obj = cJSON_GetArrayItem(tsarray, i);
+                sprintf(fmtstr + strlen(fmtstr), "%s %s\n", 
+                    cJSON_Print(cJSON_GetObjectItem(data_obj,"ts")),
+                    cJSON_Print(cJSON_GetObjectItem(data_obj, "value")));
+            }
+            
+        }
+        fprintf(stdout, "fmtstr=\n%s", fmtstr);
+        cJSON_Delete(resp_cpy);
+    
+    }
+    return fmtstr;
+}
 
 static int sfs_getattr(const char *path, struct stat *stbuf)
 {
     char* getresp;
     cJSON* json;
     cJSON* prev_reply_json;
-	int res = 0, isdir_t, getok=0;
+	int res = 0, isdir_t;
 
 	memset(stbuf, 0, sizeof(struct stat));
-    getok=get((char*)path,&getresp);
-    if(getok>0){
+    getresp=get(path);
+    if(strlen(getresp)>0){
         isdir_t = isdir((char*)path);
         json = cJSON_Parse(getresp);
         fprintf(stdout, "path=%s, resp=%s, isdir=%d\n", path, getresp, isdir_t);
@@ -38,20 +80,16 @@ static int sfs_getattr(const char *path, struct stat *stbuf)
             stbuf->st_mode = S_IFREG | 0666;
 		    //stbuf->st_nlink = 1;
             pthread_mutex_lock(&qres_lock);
-            if((prev_reply_json=cJSON_GetObjectItem(queryres_cache, path)) != NULL){
-                free(getresp);
-                getresp = cJSON_Print(prev_reply_json);
-            }
+            if((prev_reply_json=cJSON_GetObjectItem(queryres_cache, path)) != NULL)
+                getresp = fmt_ts_query_result(prev_reply_json, path);
             pthread_mutex_unlock(&qres_lock);
             stbuf->st_size = strlen(getresp);
         } 
         cJSON_Delete(json);
-        free(getresp);
     } else {
         fprintf(stdout, "%s does not exist\n", path);
         res = -ENOENT;
     }
-
 	return res;
 }
 
@@ -59,7 +97,7 @@ static int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			 off_t offset, struct fuse_file_info *fi)
 {
     char* getstat;
-    int gsize=0, i, ch_size, isdir_t;
+    int i, ch_size, isdir_t;
     //struct stat info;
     cJSON* json;
     struct cJSON* ch_obj;
@@ -70,8 +108,8 @@ static int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	filler(buf, "..", NULL, 0);
 
     //read the streamfs path
-    gsize = get((char*)path, &getstat);
-    if(gsize>0){
+    getstat = get(path);
+    if(strlen(getstat)>0){
         fprintf(stdout, "sfs_readdir::getstat=%s\n", getstat);
         json = cJSON_Parse(getstat);
         isdir_t = isdir((char*)path);
@@ -90,7 +128,6 @@ static int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
             }
         }
         cJSON_Delete(json);
-	    free(getstat);
     } else
         return -ENOENT;
 
@@ -138,7 +175,7 @@ static int sfs_read(const char *path, char *buf, size_t size, off_t offset,
 		      struct fuse_file_info *fi)
 {
     char* getstat;
-    int gsize=0;
+    int gsize;
     cJSON* prev_reply_json;
     int retqrep=0;
 	size_t len;
@@ -148,7 +185,8 @@ static int sfs_read(const char *path, char *buf, size_t size, off_t offset,
     //if it was, return that reply.
     pthread_mutex_lock(&qres_lock);
     if((prev_reply_json=cJSON_GetObjectItem(queryres_cache, path)) != NULL){
-        getstat = cJSON_Print(prev_reply_json);
+        //getstat = cJSON_Print(prev_reply_json);
+        getstat = fmt_ts_query_result(prev_reply_json, path);
         gsize=strlen(getstat);
         fprintf(stdout, "prev_qres=%s\n", getstat);
         cJSON_DetachItemFromObject(queryres_cache, path);
@@ -159,12 +197,14 @@ static int sfs_read(const char *path, char *buf, size_t size, off_t offset,
     //read the streamfs path
     fprintf(stdout,"getting: %s\n", path);
     //if the file was not previously queried, return the GET reply from this file
-    if(retqrep==0)
-        gsize = get((char*)path, &getstat);
+    if(retqrep==0){
+        getstat = get((char*)path);
+        gsize=strlen(getstat);
+    }
     if(gsize>0){
         sfs_str = (char*) malloc(gsize+1);
+        memset(sfs_str, 0, sizeof(sfs_str));
         strcpy(sfs_str, getstat);
-	    free(getstat);
     } else {
         return 0;
     }
@@ -246,8 +286,8 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
     strcat(fpath, query_prefix);
     strcat(fpath, buf);
     fprintf(stdout, "fullpath=%s\n", fpath);
-    get(fpath, &queryrep);
-    if(queryrep != NULL){
+    queryrep=get(fpath);
+    if(strlen(queryrep)>0){
         queryresp_ = queryrep;
         retstat = strlen(buf)*sizeof(char);
         fprintf(stdout, "query_reply=%s\n", queryrep);
@@ -257,7 +297,6 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
         else
             cJSON_ReplaceItemInObject(queryres_cache, path, cJSON_CreateString(queryresp_));
         pthread_mutex_unlock(&qres_lock);
-        free(queryrep);
     }
     free(fpath);
     return retstat;
@@ -292,6 +331,7 @@ int sfs_truncate(const char *path, off_t newsize)
 
 void* sfs_init(struct fuse_conn_info *conn)
 {
+    init_sfslib();
     pthread_mutex_lock(&qres_lock);
     queryres_cache = cJSON_CreateObject();
     pthread_mutex_unlock(&qres_lock);
@@ -300,6 +340,7 @@ void* sfs_init(struct fuse_conn_info *conn)
 
 void sfs_destroy(void* userdata)
 {
+    shutdown_sfslib();
     pthread_mutex_lock(&qres_lock);
     if(queryres_cache != NULL)
         cJSON_Delete(queryres_cache);

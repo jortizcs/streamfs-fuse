@@ -1,7 +1,10 @@
 #ifndef SFSLIB_H
 #define SFSLIB_H 
 
-int get(const char *, char**);
+
+void init_sfslib();
+void shutdown_sfslib();
+char* get(const char *);
 int delete_(const char *);
 int isdir(const char*);
 int mkdefault(const char*);

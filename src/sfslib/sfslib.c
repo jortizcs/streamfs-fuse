@@ -21,17 +21,18 @@ size_t read_cs_callback(void *ptr, size_t size, size_t nmemb, void *stream);
 char* split_parent_child(const char* path, int parent_child);
 int last_index_of(const char* source, char c);
 
-#define MAX_BUF 2000
-char url_buf[MAX_BUF];
+#define MAX_URL_BUF 2000
+#define MAX_RES_BUF 65536//1048576
 
 //GLOBALS
 static CURL* get_curl=NULL;
 static CURL* put_curl=NULL;
 static CURL* post_curl=NULL;
 static CURL* delete_curl=NULL;
-char* get_resp=NULL;
+char get_resp[MAX_RES_BUF];
+int bytes_rcvd=0;
 static const char* sfs_server = "http://jortiz81.homelinux.com:8081";
-char fpath[MAX_BUF];
+char fpath[MAX_URL_BUF];
 
 static char* new_node_name;
 static int CR_BASE_SIZE;
@@ -65,7 +66,7 @@ inline static void set_globals(){
         cJSON_Delete(json);
         free(out);
 
-        memset(fpath, 0, MAX_BUF);
+        memset(fpath, 0, MAX_URL_BUF);
         strcpy(fpath, sfs_server);
     
         globals_set=1;
@@ -81,7 +82,7 @@ void init_sfslib(){
 }
 
 void shutdown_sfslib(){
-    curl_easy_cleanup(get_curl);    
+    curl_easy_cleanup(get_curl); 
     curl_easy_cleanup(put_curl);
     curl_easy_cleanup(post_curl);
     curl_easy_cleanup(delete_curl);
@@ -90,17 +91,18 @@ void shutdown_sfslib(){
 size_t get_writer( void *buffer, size_t size, size_t nmemb, void *userp )
 {
     int segsize = size * nmemb;
-    /*if(get_resp!=NULL){
-        free(get_resp);
-        get_resp=NULL;
-    }*/
-    if(sizeof(get_resp)-strlen(get_resp) < size*nmemb)
+    /*int space_left = sizeof(*get_resp)- strlen(get_resp);
+    fprintf(stdout, "\tsfslib.get_writer:: space_left=%d\t%d < %d?\n", space_left, (int)(1048576-strlen(get_resp)), segsize);
+    if((1048576-strlen(get_resp)) < segsize){
+        fprintf(stdout, "CALLING REALLOC\n");
         get_resp = realloc(get_resp, sizeof(get_resp) + (size*nmemb));
+    }*/
     //get_resp =(char*)calloc(segsize+1);
     //memset(get_resp, 0, segsize+1);
-    //fprintf(stdout, "\nbuffer=%s\n", (char*)buffer);
+    fprintf(stdout, "\nbuffer=%s\n", (char*)buffer);
     //memcpy( (void *)get_resp, buffer, (size_t)segsize );
-    strcat(get_resp, buffer);
+    strncat(get_resp, buffer, segsize);
+
     //get_resp[segsize]='\0';
     return segsize;
 }
@@ -111,17 +113,16 @@ char* get( const char* path)
     int wr_error;
 
     wr_error = 0;
-
+    //get_curl = curl_easy_init();
     fprintf(stdout, "sfslib::GET %s\n", path);
     if (!get_curl) {
         printf("couldn't init curl\n");
         return 0;
     }
 
-    if(get_resp==NULL)
-        get_resp = (char*) calloc(1048576, sizeof(char));
-    memset(get_resp, 0, sizeof(get_resp));
-    memset(fpath, 0, MAX_BUF);
+    memset(get_resp, 0, MAX_RES_BUF);
+    bytes_rcvd=0;
+    memset(fpath, 0, MAX_URL_BUF);
     strcpy(fpath, sfs_server);
     strcat(fpath, path);
     fprintf(stdout, "sfslib.get::GET %s\n", fpath);
@@ -133,18 +134,25 @@ char* get( const char* path)
     * also provide it with a context pointer for our error return.
     */
     curl_easy_setopt( get_curl, CURLOPT_WRITEDATA, (void *)&wr_error );
+    fprintf(stdout, "sfslib.get:: CURLOPT_WRITEDATA set\n");
     curl_easy_setopt( get_curl, CURLOPT_WRITEFUNCTION, get_writer );
+    fprintf(stdout, "sfslib.get:: CURLOPT_WRITEFUNCTION set\n");
     curl_easy_setopt(get_curl, CURLOPT_FAILONERROR, 1);
+    fprintf(stdout, "sfslib.get:: CURLOPT_FAILONERROR set\n");
     curl_easy_setopt(get_curl, CURLOPT_HEADER, 0);
+    fprintf(stdout, "sfslib.get:: CURLOPT_HEADER set\n");
 
     /* Allow curl to perform the action */
+    fprintf(stdout, "sfslib.get::calling easy_perform");
     ret = curl_easy_perform( get_curl );
+    fprintf(stdout, "sfslib.get::easy_perform called");
+    //curl_easy_cleanup(get_curl);
 
     //printf( "ret = %d (write_error = %d)\n", ret, wr_error );
 
     /* Emit the page if curl indicates that no errors occurred */
     if ( ret != 0 ) 
-        memset(get_resp, 0, sizeof(get_resp));
+        memset(get_resp, 0, MAX_RES_BUF);
     get_resp[last_index_of(get_resp, '}')+1]='\0';
     return get_resp;
 }
@@ -155,7 +163,7 @@ int delete_(const char * path){
 
     fprintf(stdout, "input_path=%s\n", path);
 	if(delete_curl && path!=NULL) {
-        memset(fpath, 0, MAX_BUF);
+        memset(fpath, 0, MAX_URL_BUF);
         strcpy(fpath, sfs_server);
         strcat(fpath, path);
         fprintf(stdout, "DELETE fpath=%s\n", fpath);
@@ -184,7 +192,7 @@ int mkdefault(const char * path){
     fprintf(stdout, "mkdefault::input_path=%s\n", path);
 	if(path!=NULL) {
         parent = split_parent_child(path, 0);
-        memset(fpath, 0, MAX_BUF);
+        memset(fpath, 0, MAX_URL_BUF);
         strcpy(fpath, sfs_server);
         strcat(fpath, parent);
         fprintf(stdout, "PUT fpath=%s\n", fpath);
@@ -231,7 +239,7 @@ int mkstream(const char * path){
 	if(put_curl && path!=NULL) {
         set_globals();
         parent = split_parent_child(path, 0);
-        memset(fpath, 0, MAX_BUF);
+        memset(fpath, 0, MAX_URL_BUF);
         strcpy(fpath, sfs_server);
         strcat(fpath, parent);
         fprintf(stdout, "PUT fpath=%s\n", fpath);
@@ -268,10 +276,10 @@ int mkstream(const char * path){
 int isdir(const char * path){
     char* resp;
     cJSON* obj;
-    char lpath[MAX_BUF];
+    char lpath[MAX_URL_BUF];
     if(strcmp(path, "/")==0)
         return 1;
-    memset(lpath, 0, MAX_BUF);
+    memset(lpath, 0, MAX_URL_BUF);
     strcpy(lpath, path);
     fprintf(stdout, "sfslib.isdir::lpath=%s\n", lpath);
     resp=get(lpath);
@@ -317,10 +325,13 @@ size_t read_cs_callback(void *ptr, size_t size, size_t nmemb, void *stream){
 int last_index_of(const char* source, char c){
     int idx=-1;
     int i=0;
-    int srclen = strlen(source);
-    for(i=srclen-1; i>=0; i--){
-        if(source[i] == c)
-            return i;
+    int srclen = 0;
+    if(source != NULL) {
+        srclen = strlen(source);
+        for(i=srclen-1; i>=0; i--){
+            if(source[i] == c)
+                return i;
+        }
     }
     return idx;
 }
@@ -379,14 +390,24 @@ char* split_parent_child(const char* path, int parent_child){
 }
 
 /*int main(int argc, char*argv[]){
+    char* query;
+    char* rep;
+    int isdir_;
     init_sfslib();
-    test6();
+    rep =get("/homes/jorge/acmes/2218/power");
+    fprintf(stdout, "rep=%s\n", rep);
+    isdir_ = isdir("/homes/jorge/acmes/2218/power");
+    rep=get("/homes/jorge/acmes/2218/power");
+    fprintf(stdout, "rep=%s\n", rep);
+    query = "/homes/jorge/acmes/2218/power?query=true&ts_timestamp=lt:now,gt:now-800\n";
+    rep = get(query);
+    fprintf(stdout, "rep=%s\n", rep);
     shutdown_sfslib();
     return 0;
 }*/
 
 void test(){
-    char path[MAX_BUF];
+    char path[MAX_URL_BUF];
     char* childstr;
     cJSON* json;
     cJSON* children;
@@ -410,7 +431,7 @@ void test(){
             strncpy(childstr_nq, childstr+1, strlen(childstr)-2);
             fprintf(stdout, "\tchild[%d]=%s\n", i, childstr_nq);
 
-            memset(path, 0, MAX_BUF);
+            memset(path, 0, MAX_URL_BUF);
             strcat(&path[0], "/");  
             strcat(&path[strlen(path)], childstr_nq);
             fprintf(stdout, "main_path=%s\n", path);

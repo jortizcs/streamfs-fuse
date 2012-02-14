@@ -21,9 +21,11 @@ static cJSON* queryres_cache=NULL;
 static pthread_mutex_t qres_lock;
 
 //the returned string MUST be freed after it's used.
-static char* fmt_ts_query_result(cJSON* prev_reply_json, const char* path){
+static char* fmt_ts_query_result(cJSON* prev_reply_json, const char* path, int* size){
     char* resp_cpy_str;         //feed()'d locally
     char* fmtstr;               //free()'d by caller
+    char* ts;
+    char* v;
     cJSON* data_obj;            //delete not needed
     cJSON* tsarray;             //delete not needed
     int i=0,dtptct=0;
@@ -35,33 +37,37 @@ static char* fmt_ts_query_result(cJSON* prev_reply_json, const char* path){
     if(prev_reply_json == NULL)
         fprintf(stdout, "Previously reply is NULL");
     //resp_cpy = cJSON_Parse(resp_cpy_str);
-    fmtstr = (char*)malloc(strlen(resp_cpy_str));
-    memset(fmtstr, 0, sizeof(fmtstr));
+    fmtstr = (char*)calloc(strlen(resp_cpy_str),sizeof(int));
     free(resp_cpy_str);
     /*}
     pthread_mutex_unlock(&qres_lock);*/
     tsarray=cJSON_GetObjectItem(prev_reply_json, "ts_query_results");
     if(tsarray!=NULL){
         fprintf(stdout, "tsarray NOT NULL\n");
-    } else {
-        fprintf(stdout, "tsarray NULL\n");
-    }
-
-    if(tsarray!=NULL){
         dtptct = cJSON_GetArraySize(tsarray);
         fprintf(stdout, "array_size=%d\n", dtptct);
         if(dtptct>0){
+            *size=0;
             for(i=0; i<dtptct; ++i){
                 data_obj = cJSON_GetArrayItem(tsarray, i);
-                sprintf(fmtstr + strlen(fmtstr), "%s %s\n", 
-                    cJSON_Print(cJSON_GetObjectItem(data_obj,"ts")),
-                    cJSON_Print(cJSON_GetObjectItem(data_obj, "value")));
+                ts = cJSON_Print(cJSON_GetObjectItem(data_obj,"ts"));
+                v = cJSON_Print(cJSON_GetObjectItem(data_obj, "value"));
+                fprintf(stdout, "\tts=%s, v=%s\n", ts, v);
+                sprintf(fmtstr + strlen(fmtstr), "%s %s\n",ts, v);
+                (*size) += strlen(ts) + strlen(v) + 2;
+                free(ts);
+                free(v);
             }
+            if(size>0)
+                fmtstr[*size]='\0';
             
         }
         fprintf(stdout, "fmtstr=\n%s", fmtstr);
         //cJSON_Delete(resp_cpy);
+    }else {
+        fprintf(stdout, "tsarray NULL\n");
     }
+
     return fmtstr;
 }
 
@@ -70,8 +76,7 @@ static int sfs_getattr(const char *path, struct stat *stbuf)
     char* getresp;
     cJSON* json;
     cJSON* prev_reply_json;
-    cJSON* tsres;
-	int res = 0, isdir_t;
+	int res = 0, isdir_t, getresp_size=-1;
 
 	memset(stbuf, 0, sizeof(struct stat));
     getresp=get(path);
@@ -87,14 +92,14 @@ static int sfs_getattr(const char *path, struct stat *stbuf)
 		    //stbuf->st_nlink = 1;
             pthread_mutex_lock(&qres_lock);
             if((prev_reply_json=cJSON_GetObjectItem(queryres_cache, path)) != NULL){
-                tsres = cJSON_GetObjectItem(prev_reply_json, "ts_query_results");
-                if(tsres != NULL){
-                    fprintf(stdout, "tsres NOT NULL\n");
-                } else  fprintf(stdout, "tsres NULL\n");
-                getresp = fmt_ts_query_result(prev_reply_json, path);
+                //tsres = cJSON_GetObjectItem(prev_reply_json, "ts_query_results");
+                getresp = fmt_ts_query_result(prev_reply_json, path, &getresp_size);
+                stbuf->st_size = getresp_size;
+                free(getresp);
+            } else {
+                stbuf->st_size = strlen(getresp);
             }
             pthread_mutex_unlock(&qres_lock);
-            stbuf->st_size = strlen(getresp);
         } 
         cJSON_Delete(json);
     } else {
@@ -186,7 +191,7 @@ static int sfs_read(const char *path, char *buf, size_t size, off_t offset,
 		      struct fuse_file_info *fi)
 {
     char* getstat;
-    int gsize;
+    int gsize=-1;
     cJSON* prev_reply_json;
     int retqrep=0;
 	size_t len;
@@ -197,10 +202,11 @@ static int sfs_read(const char *path, char *buf, size_t size, off_t offset,
     pthread_mutex_lock(&qres_lock);
     if((prev_reply_json=cJSON_GetObjectItem(queryres_cache, path)) != NULL){
         //getstat = cJSON_Print(prev_reply_json);
-        getstat = fmt_ts_query_result(prev_reply_json, path);
-        gsize=strlen(getstat);
+        getstat = fmt_ts_query_result(prev_reply_json, path, &gsize);
+        //gsize=strlen(getstat);
         fprintf(stdout, "prev_qres=%s\n", getstat);
         cJSON_DetachItemFromObject(queryres_cache, path);
+        fprintf(stdout, "\tgsize=%d strlen=%d\n", (int)gsize, (int)strlen(getstat));
         retqrep = 1;
     }
     pthread_mutex_unlock(&qres_lock);
@@ -226,6 +232,7 @@ static int sfs_read(const char *path, char *buf, size_t size, off_t offset,
 			size = len - offset;
         else
             size = len;
+        memset(buf, 0, size);
 		memcpy(buf, sfs_str + offset, size);
         fprintf(stdout, "\tsfs_read::buf=%s\n\tsize=%d\n", buf,(int)size);
 	} else
@@ -292,7 +299,6 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
     char* query_prefix = "?query=true&";
     char* fpath;
     char* p;
-    int i=0;
     cJSON* resp_json;
     fprintf(stdout, "buf=%s\n", buf);
     fpath = (char*) malloc(sizeof(char)*(strlen(path) + strlen(query_prefix) + strlen(buf)));
@@ -304,6 +310,8 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
       *p = '\0';
     fprintf(stdout, "fullpath=%s\n", fpath);
     queryrep=get(fpath);
+    if(fpath != NULL)
+        free(fpath);
     if(strlen(queryrep)>0){
         queryresp_ = queryrep;
         resp_json = cJSON_Parse(queryrep);
@@ -316,7 +324,6 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
             cJSON_ReplaceItemInObject(queryres_cache, path, resp_json);
         pthread_mutex_unlock(&qres_lock);
     }
-    free(fpath);
     return retstat;
 }
 

@@ -99,7 +99,7 @@ size_t get_writer( void *buffer, size_t size, size_t nmemb, void *userp )
     }*/
     //get_resp =(char*)calloc(segsize+1);
     //memset(get_resp, 0, segsize+1);
-    fprintf(stdout, "\nbuffer=%s\n", (char*)buffer);
+    //fprintf(stdout, "\nbuffer=%s\n", (char*)buffer);
     //memcpy( (void *)get_resp, buffer, (size_t)segsize );
     strncat(get_resp, buffer, segsize);
 
@@ -114,7 +114,7 @@ char* get( const char* path)
 
     wr_error = 0;
     //get_curl = curl_easy_init();
-    fprintf(stdout, "sfslib::GET %s\n", path);
+    //fprintf(stdout, "sfslib::GET %s\n", path);
     if (!get_curl) {
         printf("couldn't init curl\n");
         return 0;
@@ -134,18 +134,18 @@ char* get( const char* path)
     * also provide it with a context pointer for our error return.
     */
     curl_easy_setopt( get_curl, CURLOPT_WRITEDATA, (void *)&wr_error );
-    fprintf(stdout, "sfslib.get:: CURLOPT_WRITEDATA set\n");
+    //fprintf(stdout, "sfslib.get:: CURLOPT_WRITEDATA set\n");
     curl_easy_setopt( get_curl, CURLOPT_WRITEFUNCTION, get_writer );
-    fprintf(stdout, "sfslib.get:: CURLOPT_WRITEFUNCTION set\n");
+    //fprintf(stdout, "sfslib.get:: CURLOPT_WRITEFUNCTION set\n");
     curl_easy_setopt(get_curl, CURLOPT_FAILONERROR, 1);
-    fprintf(stdout, "sfslib.get:: CURLOPT_FAILONERROR set\n");
+    //fprintf(stdout, "sfslib.get:: CURLOPT_FAILONERROR set\n");
     curl_easy_setopt(get_curl, CURLOPT_HEADER, 0);
-    fprintf(stdout, "sfslib.get:: CURLOPT_HEADER set\n");
+    //fprintf(stdout, "sfslib.get:: CURLOPT_HEADER set\n");
 
     /* Allow curl to perform the action */
-    fprintf(stdout, "sfslib.get::calling easy_perform");
+    //fprintf(stdout, "sfslib.get::calling easy_perform");
     ret = curl_easy_perform( get_curl );
-    fprintf(stdout, "sfslib.get::easy_perform called");
+    //fprintf(stdout, "sfslib.get::easy_perform called");
     //curl_easy_cleanup(get_curl);
 
     //printf( "ret = %d (write_error = %d)\n", ret, wr_error );
@@ -394,12 +394,12 @@ char* split_parent_child(const char* path, int parent_child){
     char* rep;
     int isdir_;
     init_sfslib();
-    rep =get("/homes/jorge/acmes/2218/power");
+    /*rep =get("/homes/jorge/acmes/2218/power");
     fprintf(stdout, "rep=%s\n", rep);
     isdir_ = isdir("/homes/jorge/acmes/2218/power");
     rep=get("/homes/jorge/acmes/2218/power");
-    fprintf(stdout, "rep=%s\n", rep);
-    query = "/homes/jorge/acmes/2218/power?query=true&ts_timestamp=lt:now,gt:now-800\n";
+    fprintf(stdout, "rep=%s\n", rep);*/
+    /*query = "/homes/jorge/acmes/2218/power?query=true&ts_timestamp=lt:now,gt:now-800\n";
     rep = get(query);
     fprintf(stdout, "rep=%s\n", rep);
     shutdown_sfslib();

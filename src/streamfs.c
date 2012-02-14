@@ -1,7 +1,7 @@
 /*
 */
 
-#define FUSE_USE_VERSION 26
+//#define FUSE_USE_VERSION 26
 
 #include <fuse.h>
 #include <stdio.h>
@@ -122,6 +122,9 @@ static int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
     filler(buf, ".", NULL, 0);
 	filler(buf, "..", NULL, 0);
+    filler(buf, "._.", NULL, 0);
+    filler(buf, "Backups.backupdb", NULL, 0);
+    filler(buf, "mach_kernel", NULL, 0);
 
     //read the streamfs path
     getstat = get(path);

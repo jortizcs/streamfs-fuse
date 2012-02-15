@@ -1,13 +1,14 @@
-CC = gcc
-CFLAGS_MACFUSE = -D__FreeBSD__=10 -D__DARWIN_64_BIT_INO_T=1 -D_FILE_OFFSET_BITS=64 -I/usr/local/include/fuse #-DFUSE_USE_VERSION=27
-CFLAGS_EXTRA = -Wall -Werror -g
+CC = gcc -fPIC
+CFLAGS_MACFUSE = -D__DARWIN_64_BIT_INO_T=1 -D_FILE_OFFSET_BITS=64 -I/usr/local/include/fuse -DFUSE_USE_VERSION=26# -D__FreeBSD__=10
+#CFLAGS_EXTRA = -Wall -Werror -g -Wextra -ggdb -pg -DDEBUG 
+CFLAGS_EXTRA = -g -Wextra -ggdb -pg -DDEBUG 
 CURL_FLAGS = -lcurl
 MATH_FLAGS = -lm
 #ARCHS = -arch i386 -arch ppc
 LIBS = -lfuse_ino64
 
-streamfs : streamfs.o sfslib.o cJSON.o log.o
-	$(CC) $(LIBS) $(CFLAGS_MACFUSE) $(CFLAGS_EXTRA) $(CURL_FLAGS) -o streamfs streamfs.o log.o sfslib/sfslib.o cJSON/cJSON.o $(MATH_FLAGS)
+streamfs : streamfs.o sfslib.o cJSON.o log.o hashtable.o
+	$(CC) $(LIBS) $(CFLAGS_MACFUSE) $(CFLAGS_EXTRA) $(CURL_FLAGS) -o streamfs streamfs.o log.o sfslib/sfslib.o cJSON/cJSON.o Hash-Table/hashtable.o $(MATH_FLAGS)
 
 sfslib.o :
 	gcc -c sfslib/sfslib.c -o sfslib/sfslib.o
@@ -21,5 +22,8 @@ cJSON.o : cJSON/cJSON.h
 log.o : log.c log.h params.h
 	gcc -g -Wall $(CFLAGS_MACFUSE) -c log.c
 
+hashtable.o : Hash-Table/hashtable.h
+	gcc -g -Wall -c Hash-Table/hashtable.c -o Hash-Table/hashtable.o
+
 clean:
-	rm -f streamfs *.o sfslib/*.o
+	rm -f streamfs *.o sfslib/*.o cJSON/cJSON.o Hash-Table/hashtable.o

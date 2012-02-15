@@ -6,7 +6,7 @@ void init_sfslib();
 void shutdown_sfslib();
 char* get(const char *);
 int delete_(const char *);
-int isdir(const char*);
+int isdir(const char*, int* size);
 int mkdefault(const char*);
 int mkstream(const char*);
 

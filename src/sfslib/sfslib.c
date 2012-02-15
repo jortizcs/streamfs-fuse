@@ -273,18 +273,22 @@ int mkstream(const char * path){
     return -1;
 }
 
-int isdir(const char * path){
+/**
+ * Return 1 if it is a "default" file, 0 if we received a response but 
+ * the resource is a stream, -1 if not response was received.
+ */
+int isdir(const char * path, int *size){
     char* resp;
     cJSON* obj;
     char lpath[MAX_URL_BUF];
-    if(strcmp(path, "/")==0)
-        return 1;
     memset(lpath, 0, MAX_URL_BUF);
     strcpy(lpath, path);
     fprintf(stdout, "sfslib.isdir::lpath=%s\n", lpath);
     resp=get(lpath);
     fprintf(stdout, "resp=%s\n", resp);
-    if(resp !=NULL && strlen(resp)>0){
+    if(resp !=NULL && (*size=strlen(resp))>0){
+        if(strcmp(path, "/")==0)
+            return 1;
         //convert resp to json object, return true if "type=DEFAULT" is set in the response
         obj = cJSON_Parse(resp);
         if(obj != NULL && cJSON_GetObjectItem(obj, "type") != NULL &&
@@ -293,6 +297,9 @@ int isdir(const char * path){
             return 1;
         }
     }
+
+    if(*size==0)
+        return -1;
 
     return 0;
 }
@@ -394,12 +401,12 @@ char* split_parent_child(const char* path, int parent_child){
     char* rep;
     int isdir_;
     init_sfslib();
-    /*rep =get("/homes/jorge/acmes/2218/power");
+    rep =get("/homes/jorge/acmes/2218/power");
     fprintf(stdout, "rep=%s\n", rep);
     isdir_ = isdir("/homes/jorge/acmes/2218/power");
     rep=get("/homes/jorge/acmes/2218/power");
-    fprintf(stdout, "rep=%s\n", rep);*/
-    /*query = "/homes/jorge/acmes/2218/power?query=true&ts_timestamp=lt:now,gt:now-800\n";
+    fprintf(stdout, "rep=%s\n", rep);
+    query = "/homes/jorge/acmes/2218/power?query=true&ts_timestamp=lt:now,gt:now-800\n";
     rep = get(query);
     fprintf(stdout, "rep=%s\n", rep);
     shutdown_sfslib();
@@ -444,9 +451,10 @@ void test(){
 }
 
 void test2(){
-    fprintf(stdout, " isdir(\"/pub\")?  %d\n", isdir("/pub"));
-    fprintf(stdout, " isdir(\"/temp\")?  %d\n", isdir("/temp"));
-    fprintf(stdout, " isdir(\"/temp\")?  %d\n", isdir("/temp/strm1"));
+    int size;
+    fprintf(stdout, " isdir(\"/pub\")?  %d\n", isdir("/pub", &size));
+    fprintf(stdout, " isdir(\"/temp\")?  %d\n", isdir("/temp", &size));
+    fprintf(stdout, " isdir(\"/temp\")?  %d\n", isdir("/temp/strm1", &size));
 }
 
 void test3(){

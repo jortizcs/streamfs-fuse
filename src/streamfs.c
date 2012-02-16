@@ -12,7 +12,7 @@
 #include <pthread.h>
 #include "cJSON/cJSON.h"
 #include "sfslib/sfslib.h"
-#include "Hash-Table/hashtable.h"
+#include "strmap/strmap.h"
 
 #define SFS_DATA ((struct sfs_state *) fuse_get_context()->private_data)
 
@@ -20,15 +20,11 @@ static char *sfs_str = "Hello World!\n";
 //static const char *sfs_path = "/temp";
 static cJSON* queryres_cache=NULL;
 static pthread_mutex_t qres_lock;
-static hash_table_t* dir_cache;
+static StrMap* dir_cache;
 
 //the first value (-1, 0,1) is the type and the rest is the size
-static hash_table_t* file_type_size_cache;
+static StrMap* file_type_size_cache;
 
-
-//pthread_mutex_t query_lock;
-//static hash_table_t* query_active_lookup;
-//static hash_table_t* file_info_cache;
 
 //the returned string MUST be freed after it's used.
 static char* fmt_ts_query_result(cJSON* prev_reply_json, const char* path, int* size){
@@ -108,11 +104,12 @@ static int sfs_getattr(const char *path, struct stat *stbuf)
         filesize_t = atoi(filesize_str);
     }
     else{
-        fprintf(stdout, "\tfile_type_size_cache_miss, %s\n", path);
         isdir_res=isdir(path, &filesize_t);
+        fprintf(stdout, "\tfile_type_size_cache_miss, %s, file_size=%d\n", path, filesize_t);
         if(filesize_t>0){
             sprintf(file_type_size_str, "%d%d", isdir_res, filesize_t);
-            HT_ADD(file_type_size_cache, path, filesize_str);
+            HT_ADD(file_type_size_cache, path, file_type_size_str);
+            fprintf(stdout, "\tadded %s to cache; entry=[ %s ]\n", path, file_type_size_str);
         }
     }
     fprintf(stdout, "\tfilesize_t=%d\n", filesize_t);
@@ -170,10 +167,10 @@ static int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     else{
         //read the streamfs path
         getstat = get(path);
-        //HT_ADD(dir_cache, (void*)path, (void*)getstat);
-        hash_table_add(dir_cache, (void*)path, strlen(path), 
-                (void*) getstat,strlen(getstat));
+        if(strlen(getstat)>0)
+            HT_ADD(dir_cache, path, getstat);
         fprintf(stdout, "\tdir_cache miss, key=%s\n", path);
+
     }
     if(strlen(getstat)>0){
         fprintf(stdout, "sfs_readdir::getstat=%s\n", getstat);
@@ -416,14 +413,12 @@ int sfs_truncate(const char *path, off_t newsize)
 
 void* sfs_init(struct fuse_conn_info *conn)
 {
-    hash_table_mode_t mode = MODE_COPY;
     init_sfslib();
     pthread_mutex_lock(&qres_lock);
     queryres_cache = cJSON_CreateObject();
     pthread_mutex_unlock(&qres_lock);
-    dir_cache = hash_table_new(mode);
-    //file_info_cache = hash_table_new(mode);
-    file_type_size_cache = hash_table_new(mode);
+    dir_cache = sm_new(4096);
+    file_type_size_cache = sm_new(4096);
     return SFS_DATA;
 }
 
@@ -434,6 +429,8 @@ void sfs_destroy(void* userdata)
     if(queryres_cache != NULL)
         cJSON_Delete(queryres_cache);
     pthread_mutex_unlock(&qres_lock);
+    sm_delete(dir_cache);
+    sm_delete(file_type_size_cache);
 }
 
 static struct fuse_operations sfs_oper = {

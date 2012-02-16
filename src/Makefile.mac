@@ -8,7 +8,7 @@ MATH_FLAGS = -lm
 LIBS = -lfuse_ino64
 
 streamfs : streamfs.o sfslib.o cJSON.o log.o hashtable.o
-	$(CC) $(LIBS) $(CFLAGS_MACFUSE) $(CFLAGS_EXTRA) $(CURL_FLAGS) -o streamfs streamfs.o log.o sfslib/sfslib.o cJSON/cJSON.o Hash-Table/hashtable.o $(MATH_FLAGS)
+	$(CC) $(LIBS) $(CFLAGS_MACFUSE) $(CFLAGS_EXTRA) $(CURL_FLAGS) -o streamfs streamfs.o log.o sfslib/sfslib.o cJSON/cJSON.o strmap/hashtable.o $(MATH_FLAGS)
 
 sfslib.o :
 	gcc -c sfslib/sfslib.c -o sfslib/sfslib.o
@@ -22,8 +22,8 @@ cJSON.o : cJSON/cJSON.h
 log.o : log.c log.h params.h
 	gcc -g -Wall $(CFLAGS_MACFUSE) -c log.c
 
-hashtable.o : Hash-Table/hashtable.h
-	gcc -g -Wall -c Hash-Table/hashtable.c -o Hash-Table/hashtable.o
+hashtable.o : 
+	gcc -g -Wall -c strmap/strmap.c -o strmap/hashtable.o
 
 clean:
-	rm -f streamfs *.o sfslib/*.o cJSON/cJSON.o Hash-Table/hashtable.o
+	rm -f streamfs *.o sfslib/*.o cJSON/cJSON.o strmap/hashtable.o

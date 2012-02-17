@@ -16,6 +16,8 @@
 
 #define SFS_DATA ((struct sfs_state *) fuse_get_context()->private_data)
 
+static char sfs_server[2000];
+
 static char *sfs_str = "Hello World!\n";
 //static const char *sfs_path = "/temp";
 static cJSON* queryres_cache=NULL;
@@ -246,6 +248,7 @@ static int sfs_read(const char *path, char *buf, size_t size, off_t offset,
 		      struct fuse_file_info *fi)
 {
     char* getstat;
+    char error_msg[1024];
     int gsize=-1;
     cJSON* prev_reply_json;
     int retqrep=0;
@@ -295,7 +298,10 @@ static int sfs_read(const char *path, char *buf, size_t size, off_t offset,
 		size = 0;
     //memcpy(buf, sfs_str + offset, size);
 
+    //if len>size, fuse will return an input/output error to the user
+    //the maximum size per read is 64K
     fprintf(stdout, "returning size=%d\n", (int)size);
+
 	return size;
 }
 
@@ -449,7 +455,7 @@ int sfs_truncate(const char *path, off_t newsize)
 
 void* sfs_init(struct fuse_conn_info *conn)
 {
-    init_sfslib();
+    init_sfslib(sfs_server);
     pthread_mutex_lock(&qres_lock);
     queryres_cache = cJSON_CreateObject();
     pthread_mutex_unlock(&qres_lock);
@@ -491,5 +497,15 @@ static struct fuse_operations sfs_oper = {
 
 int main(int argc, char *argv[])
 {
+    int i;
+    if(argc <2)
+        return;
+    if(strlen(argv[0])>0)
+        sprintf(sfs_server, "%s", argv[1]);
+    argc--;
+
+    for(i=1; i<argc-1; i++)
+        argv[i] = argv[i+1];
+
 	return fuse_main(argc, argv, &sfs_oper, NULL);
 }

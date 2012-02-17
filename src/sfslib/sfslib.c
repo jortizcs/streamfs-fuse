@@ -31,7 +31,7 @@ static CURL* post_curl=NULL;
 static CURL* delete_curl=NULL;
 char get_resp[MAX_RES_BUF];
 int bytes_rcvd=0;
-static const char* sfs_server = "http://jortiz81.homelinux.com:8081";
+static char sfs_server[MAX_URL_BUF];// = "http://jortiz81.homelinux.com:8081";
 char fpath[MAX_URL_BUF];
 
 static char* new_node_name;
@@ -73,7 +73,13 @@ inline static void set_globals(){
     }
 }
 
-void init_sfslib(){
+void init_sfslib(char* host_port){
+    if(host_port != NULL && strlen(host_port)<MAX_URL_BUF){
+        sprintf(sfs_server, "http://%s", host_port);
+        fprintf(stdout, "Set host:port=%s\n", host_port);
+    }
+    else
+        sprintf(sfs_server, "http://jortiz81.homelinux.com:8081");
     set_globals();
     get_curl = curl_easy_init();
     put_curl = curl_easy_init();

@@ -22,7 +22,7 @@ char* split_parent_child(const char* path, int parent_child);
 int last_index_of(const char* source, char c);
 
 #define MAX_URL_BUF 2000
-#define MAX_RES_BUF 65536//1048576
+#define MAX_RES_BUF 1048576//65536
 
 //GLOBALS
 static CURL* get_curl=NULL;
@@ -101,7 +101,16 @@ size_t get_writer( void *buffer, size_t size, size_t nmemb, void *userp )
     //memset(get_resp, 0, segsize+1);
     //fprintf(stdout, "\nbuffer=%s\n", (char*)buffer);
     //memcpy( (void *)get_resp, buffer, (size_t)segsize );
-    strncat(get_resp, buffer, segsize);
+
+    bytes_rcvd += segsize;
+    if(bytes_rcvd < MAX_RES_BUF)
+        strncat(get_resp, buffer, segsize);
+    else{
+        memset(get_resp, 0, MAX_RES_BUF);
+        strcat(get_resp, "Too many bytes in results\n\tre-query with smaller constraints\n");
+        strcat(get_resp, "\tMAX_SIZE=%d bytes, BYTES_RETURNED=%d bytes\n");
+    }
+        
 
     //get_resp[segsize]='\0';
     return segsize;
@@ -151,9 +160,10 @@ char* get( const char* path)
     //printf( "ret = %d (write_error = %d)\n", ret, wr_error );
 
     /* Emit the page if curl indicates that no errors occurred */
-    if ( ret != 0 ) 
+    if ( ret != 0 )
         memset(get_resp, 0, MAX_RES_BUF);
-    get_resp[last_index_of(get_resp, '}')+1]='\0';
+    else if(get_resp[0] == '{')
+        get_resp[last_index_of(get_resp, '}')+1]='\0';
     return get_resp;
 }
 
@@ -395,6 +405,15 @@ char* split_parent_child(const char* path, int parent_child){
     }
     return NULL;
 }
+
+/*int main(int argc, char* argv[]){
+    char * resp;
+    init_sfslib();
+    resp = get("/homes/jorge/acmes/2224/power?query=true&ts_timestamp=lt:now,gt:now-86400");
+    fprintf(stdout, "resp=%s\n", resp);
+    shutdown_sfslib();
+    return 0;
+}*/
 
 /*int main(int argc, char*argv[]){
     char* query;

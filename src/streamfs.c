@@ -88,7 +88,7 @@ static int sfs_getattr(const char *path, struct stat *stbuf)
     char file_type_size_str[20]; 
     char* lookup_res;
 
-	memset(stbuf, 0, sizeof(struct stat));
+	//memset(stbuf, 0, sizeof(struct stat));
     if(HT_HAS_KEY(file_type_size_cache, (char*)path)==1){
         fprintf(stdout, "\tfile_type_size_cache_hit, %s, \n", path);
         temp = (char*)HT_LOOKUP(file_type_size_cache, (char*)path);
@@ -191,8 +191,10 @@ static int sfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
             }
         }
         cJSON_Delete(json);
-    } else
+    } else{
+        //memset(buf+offset, 0, sizeof(buf));
         return -ENOENT;
+    }
 
 	return 0;
 }
@@ -273,7 +275,9 @@ static int sfs_read(const char *path, char *buf, size_t size, off_t offset,
     }
     if(gsize>0){
         sfs_str = (char*) malloc(gsize+1);
-        memset(sfs_str, 0, sizeof(sfs_str));
+        if(sfs_str == NULL)
+            return 0;
+        memset(sfs_str, 0, gsize+1);
         strcpy(sfs_str, getstat);
     } else {
         return 0;
@@ -285,11 +289,11 @@ static int sfs_read(const char *path, char *buf, size_t size, off_t offset,
 			size = len - offset;
         else
             size = len;
-        memset(buf, 0, size);
 		memcpy(buf, sfs_str + offset, size);
         fprintf(stdout, "\tsfs_read::buf=%s\n\tsize=%d\n", buf,(int)size);
 	} else
 		size = 0;
+    //memcpy(buf, sfs_str + offset, size);
 
     fprintf(stdout, "returning size=%d\n", (int)size);
 	return size;
@@ -351,25 +355,55 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
     char* queryrep;
     const char* queryresp_;
     char* query_prefix = "?query=true&";
-    char* fpath;
+    char fpath[2000];
     char* p;
     cJSON* resp_json;
-    fprintf(stdout, "buf=%s\n", buf);
-    fpath = (char*) malloc(sizeof(char)*(strlen(path) + strlen(query_prefix) + strlen(buf)));
+
+    //TESTING OUTPUT/////////
+    int i=0, idx=-1;
+    while(i<size){
+        if(buf[offset+ i] == '\n'){
+            idx = i;
+            break;
+        }
+        i+=1;
+    }
+    fprintf(stdout,"\tfound '\\n' at index=%d\n", idx);
+    memset(fpath, 0, 2000);
+    fprintf(stdout, "\twrite_buf=%s, offset=%d, size=%d\n", buf, (int)offset, (int)size);
+    strncpy(fpath, buf+offset, 2000);
+    fprintf(stdout, "\tfpath=%s\n", fpath);
+    memset(fpath, 0, 2000);
+    if(idx>0){
+        p = strchr(fpath,'\n');
+        if (p)
+          *p = '\0';
+        strncpy(fpath, buf+offset, idx);
+        fprintf(stdout, "\tfpath=%s, old_size=%d, new_size=%d\n", fpath, (int)size, idx);
+    } else
+        fprintf(stdout, "\tidx <=0\n");
+    //TESTING OUTPUT///////
+
+
+    memset(fpath, 0, 2000);
     strcpy(fpath, path);
     strcat(fpath, query_prefix);
-    strncat(fpath, buf+offset, size);
+    if(idx>0 && idx<2000){
+        strncat(fpath, buf+offset, idx);
+    }
+    else{
+        strncat(fpath, buf, (2000-(strlen(path)+strlen(query_prefix))));
+    }
+    fprintf(stdout, "buf=%s\n", buf);
     p = strchr(fpath,'\n');
     if (p)
       *p = '\0';
-    fprintf(stdout, "fullpath=%s\n", fpath);
+    fprintf(stdout, "fullpath=%s, char_idx=%d\n", fpath, (int)(p-buf));
     queryrep=get(fpath);
-    if(fpath != NULL)
-        free(fpath);
     if(strlen(queryrep)>0){
         queryresp_ = queryrep;
         resp_json = cJSON_Parse(queryrep);
-        retstat = strlen(buf)*sizeof(char);
+        //retstat = strlen(buf)*sizeof(char);
         fprintf(stdout, "query_reply=%s\n", queryrep);
         pthread_mutex_lock(&qres_lock);
         if(cJSON_GetObjectItem(queryres_cache, path) == NULL)
@@ -380,9 +414,11 @@ int sfs_write(const char *path, const char *buf, size_t size, off_t offset,
         //HD_ADD(query_active_lookup, path, "y");
         pthread_mutex_unlock(&qres_lock);
     }
-    //pthread_mutex_unlock(&query_lock);
+    //pthread_mutex_unlock(&query_lock);*/
+    retstat = size;
     return retstat;
 }
+
 
 int sfs_utime(const char *path, struct utimbuf *ubuf)
 {

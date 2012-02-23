@@ -1,17 +1,26 @@
-streamfs : streamfs.o log.o sfslib.o cJSON.o
-	gcc -g -lcurl `pkg-config fuse --libs` -D_FILE_OFFSET_BITS=64 -o streamfs streamfs.o log.o sfslib/sfslib.o cJSON/cJSON.o -lm
+CC = gcc
+CFLAGS=-DFUSE_USE_VERSION=26 -D_FILE_OFFSET_BITS=64 -I/usr/local/include/fuse  -pthread -L/usr/local/lib -lfuse -lrt -ldl#-D_FILE_OFFSET_BITS=64#-# -I/usr/local/include/fuse
+#CFLAGS_EXTRA = `pkg-config fuse --cflags --libs` 
+CURL_FLAGS = -lcurl
+MATH_FLAGS = -lm
 
-sfslib.o : log.o
-	gcc -lcurl -c sfslib/sfslib.c -o sfslib/sfslib.o
+streamfs : streamfs.o sfslib.o cJSON.o log.o hashtable.o
+	$(CC) $(CFLAGS_EXTRA) -o streamfs streamfs.o log.o sfslib/sfslib.o cJSON/cJSON.o strmap/hashtable.o $(MATH_FLAGS) $(CURL_FLAGS) $(CFLAGS)
 
-streamfs.o : streamfs.c log.h params.h
-	gcc -g -Wall `pkg-config fuse --cflags` -c streamfs.c
+sfslib.o :
+	gcc -c sfslib/sfslib.c -o sfslib/sfslib.o
 
-log.o : log.c log.h params.h
-	gcc -g -Wall `pkg-config fuse --cflags` -c log.c
+streamfs.o :
+	$(CC) $(CFLAGS) -c streamfs.c -o streamfs.o
 
 cJSON.o : cJSON/cJSON.h
-	gcc -g -Wall -c cJSON/cJSON.c -o cJSON/cJSON.o
+	$(CC) $(CFLAGS_EXTRA) -c cJSON/cJSON.c -o cJSON/cJSON.o
+
+log.o : log.c log.h params.h
+	gcc -g -Wall $(CFLAGS) -c log.c $(LIbS)
+
+hashtable.o : 
+	gcc -g -Wall -c strmap/strmap.c -o strmap/hashtable.o
 
 clean:
-	rm -f streamfs *.o sfslib/*.o
+	rm -f streamfs *.o sfslib/*.o cJSON/cJSON.o strmap/hashtable.o
